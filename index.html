@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SiurtecShare | P2P Ultimate</title>
+    <title>SiurtecShare | P2P Ultimate v3</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS -->
@@ -132,7 +132,8 @@
                 <div class="flex items-center gap-2 cursor-pointer" onclick="resetApp()">
                     <div class="relative">
                         <i data-lucide="zap" class="text-indigo-400 w-6 h-6 md:w-8 md:h-8"></i>
-                        <div id="ping-indicator" class="hidden absolute -bottom-1 -right-1 w-2 h-2 md:w-3 md:h-3 bg-gray-500 rounded-full border-2 border-[#0f172a]" title="Estado Red"></div>
+                        <!-- Signaling Status Indicator -->
+                        <div id="signaling-dot" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-[#0f172a]" title="Estado Señalización"></div>
                     </div>
                     <div class="overflow-hidden">
                         <h1 class="text-lg md:text-2xl font-bold tracking-tight text-white leading-none truncate">SiurtecShare</h1>
@@ -150,7 +151,6 @@
                 <div id="connection-status" class="flex items-center gap-2 px-2 py-1 rounded-full bg-white/5 border border-white/10 hidden">
                     <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500 shrink-0"></div>
                     <span id="status-text" class="text-[10px] font-medium text-gray-300 hidden sm:inline">...</span>
-                    <!-- Ping hidden by default, shown when connected -->
                 </div>
             </div>
         </header>
@@ -170,7 +170,7 @@
             <!-- LANDING VIEW -->
             <div id="landing-view" class="flex flex-col gap-4 animate-in fade-in zoom-in duration-500 flex-grow justify-center pb-10">
                 <div class="text-center mb-4">
-                    <h2 class="text-2xl md:text-3xl font-bold text-white mb-2">P2P Directo</h2>
+                    <h2 class="text-2xl md:text-3xl font-bold text-white mb-2">P2P Directo (v3)</h2>
                     <p class="text-sm text-gray-400 px-4">Transferencia en red local sin límites.</p>
                 </div>
 
@@ -340,16 +340,18 @@
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ],
-                iceTransportPolicy: 'all', // Permitir LAN y WAN
+                iceTransportPolicy: 'all',
                 iceCandidatePoolSize: 10
             },
-            debug: 1,
+            debug: 1, // Only critical errors
             pingInterval: 2000
         };
 
-        const APP_PREFIX = 'siurtec-share-v2-'; 
+        const APP_PREFIX = 'siurtec-share-v3-'; // VERSION BUMP TO FLUSH CACHE
         let peer = null;
         let conn = null;
         let isHost = false;
@@ -357,7 +359,7 @@
         let peerNickname = "Desconocido";
         let connectTimeout = null;
         let connectionRetries = 0;
-        const MAX_RETRIES = 3;
+        const MAX_RETRIES = 5; // Increased retries
         
         let fileQueue = [];
         let isTransferring = false;
@@ -365,6 +367,7 @@
         let pingStart = 0;
         let pingTimer = null;
         let statsInterval = null;
+        let signalingHeartbeat = null;
 
         // UI Refs (Same as before)
         const ui = {
@@ -396,6 +399,7 @@
             chatInput: document.getElementById('chat-input'),
             pingText: document.getElementById('ping-text'),
             pingIndicator: document.getElementById('ping-indicator'),
+            signalingDot: document.getElementById('signaling-dot'), // NEW
             myNicknameDisplay: document.getElementById('my-nickname'),
             connectedPeerName: document.getElementById('connected-peer-name'),
             queueBadge: document.getElementById('queue-badge'),
@@ -439,7 +443,18 @@
             dbg.classList.toggle('hidden');
         }
 
-        // --- CUSTOM MODAL & TOAST SYSTEM (Existing) ---
+        // --- SIGNALING STATUS UI ---
+        function updateSignalingStatus(connected) {
+            if (connected) {
+                ui.signalingDot.className = "absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-[#0f172a] animate-pulse";
+                ui.signalingDot.title = "Nube Conectada";
+            } else {
+                ui.signalingDot.className = "absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-[#0f172a]";
+                ui.signalingDot.title = "Nube Desconectada";
+            }
+        }
+
+        // --- CUSTOM MODAL & TOAST SYSTEM ---
         function showToast(msg, type='info') {
             const toast = document.createElement('div');
             const colors = type === 'success' ? 'bg-emerald-500/90' : type === 'error' ? 'bg-red-500/90' : 'bg-indigo-500/90';
@@ -502,7 +517,7 @@
         // --- INIT ---
         function init() {
             ui.myNicknameDisplay.innerText = myNickname;
-            logDebug("Iniciando aplicación v2.2...");
+            logDebug("Iniciando aplicación v3 (Ultimate)...");
             
             const hash = window.location.hash.substring(1);
             if (hash) {
@@ -556,6 +571,8 @@
             
             isHost = true;
             updateStatus('waiting');
+            
+            // Short code generation
             const shortCode = Math.floor(100000 + Math.random() * 900000).toString();
             ui.roomCodeDisplay.innerText = shortCode;
             
@@ -564,9 +581,16 @@
 
             new QRCode(document.getElementById("qrcode"), { text: link, width: 128, height: 128, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.L });
 
-            logDebug(`Creando sala HOST: ${shortCode}`);
-            peer = new Peer(APP_PREFIX + shortCode, peerConfig);
-            setupPeerEvents();
+            logDebug(`Host ID: ${shortCode}`);
+            
+            // Create Peer
+            createPeer(APP_PREFIX + shortCode);
+        }
+
+        function createPeer(id) {
+            if (peer) peer.destroy();
+            peer = new Peer(id, peerConfig);
+            setupPeerEvents(id); // Pass ID to reconnect if needed
         }
 
         function showJoinUI() {
@@ -590,17 +614,30 @@
             isHost = false;
             connectionRetries = 0;
             updateStatus('connecting');
-            logDebug(`Iniciando GUEST hacia: ${code}`);
+            logDebug(`Guest uniendo a: ${code}`);
             
             connectTimeout = setTimeout(() => {
                 if (ui.statusText.innerText === 'Conectando...' || ui.statusText.innerText.includes('Reintentando')) {
                     updateStatus('error');
-                    showModal({ title: "Tiempo Agotado", message: "El dispositivo anfitrión no responde.\nVerifica el código.", type: 'error' }).then(() => resetApp());
+                    showModal({ title: "No Encontrado", message: "El anfitrión no está visible en la nube.\nAsegúrate de que su punto (arriba derecha) esté en AZUL.", type: 'error' }).then(() => resetApp());
                 }
             }, 30000); 
 
-            peer = new Peer(null, peerConfig);
+            // Create Guest Peer
+            createPeer(null); // Guest gets random ID
             
+            // Connect Logic Wrapper to handle retries
+            const connectToHost = () => {
+                if (!peer || peer.disconnected) return;
+                logDebug(`Intentando conectar a ${APP_PREFIX + code}`);
+                conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
+                setupConnectionEvents();
+            };
+
+            // Hook connect into Peer Open
+            peer.on('open', connectToHost);
+            
+            // Error handling specific to Guest connection
             peer.on('error', (err) => {
                 logDebug(`Error Peer: ${err.type}`);
                 if (err.type === 'peer-unavailable') {
@@ -608,24 +645,18 @@
                         connectionRetries++;
                         updateStatus('connecting');
                         ui.statusText.innerText = `Reintentando (${connectionRetries})...`;
+                        
                         setTimeout(() => {
-                            if (conn) conn.close();
-                            conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
-                            setupConnectionEvents();
+                            // BRUTE FORCE RETRY: Destroy peer and recreate to flush any bad signaling state
+                            logDebug("Recreando identidad para reintento limpio...");
+                            createPeer(null); 
+                            peer.on('open', connectToHost);
                         }, 2000);
                     } else {
                         updateStatus('error');
-                        showModal({ title: "No Encontrado", message: "No se encuentra el host.", type: 'error' }).then(() => resetApp());
+                        showModal({ title: "No Encontrado", message: "No se encuentra el host. Verifica el código.", type: 'error' }).then(() => resetApp());
                     }
-                } else {
-                    showModal({ title: "Error", message: err.type, type: 'error' }).then(() => resetApp());
                 }
-            });
-            
-            peer.on('open', () => {
-                logDebug("Peer abierto, conectando...");
-                conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
-                setupConnectionEvents();
             });
         }
 
@@ -635,43 +666,72 @@
             initGuestFlow(code);
         }
 
-        function setupPeerEvents() {
+        function setupPeerEvents(reconnectId = null) {
             peer.on('open', (id) => {
-                updateStatus('waiting');
-                logDebug(`Peer ID asignado: ${id}`);
+                updateStatus(isHost ? 'waiting' : 'connecting');
+                logDebug(`ID Propio: ${id}`);
+                updateSignalingStatus(true);
+                
+                // Start Heartbeat for Host to keep Signaling Alive
+                if (isHost && reconnectId) {
+                    if (signalingHeartbeat) clearInterval(signalingHeartbeat);
+                    signalingHeartbeat = setInterval(() => {
+                        if (peer && !peer.disconnected && !peer.destroyed) {
+                            // PeerJS automatically pings, but we check local state
+                            updateSignalingStatus(true);
+                        } else if (peer && peer.disconnected) {
+                            logDebug("Señalización perdida. Reconectando...");
+                            updateSignalingStatus(false);
+                            peer.reconnect();
+                        }
+                    }, 5000);
+                }
             });
             
+            peer.on('disconnected', () => {
+                logDebug("Desconectado de la nube (Signaling)");
+                updateSignalingStatus(false);
+                // Auto-reconnect attempts
+                if (isHost) peer.reconnect();
+            });
+
             peer.on('connection', (connection) => {
-                logDebug("Nueva conexión entrante...");
+                logDebug("Conexión entrante recibida!");
                 if(conn) { conn.close(); logDebug("Cerrando conexión previa"); }
                 conn = connection;
                 setupConnectionEvents();
             });
-
-            peer.on('error', (err) => {
-                logDebug(`Peer Error: ${err.type}`);
-                if(err.type === 'unavailable-id') { peer.destroy(); initHostFlow(); }
-            });
+            
+            // Generic Error Handler (Guest has specific one)
+            if (isHost) {
+                peer.on('error', (err) => {
+                    logDebug(`Error Host: ${err.type}`);
+                    if(err.type === 'unavailable-id') { 
+                        // Fatal for host
+                        showModal({title: "Error de ID", message: "Reinicia la app.", type: 'error'});
+                    }
+                });
+            }
         }
 
         function setupConnectionEvents() {
             if (!conn) return;
             
             conn.on('open', () => {
-                logDebug("Conexión de datos ABIERTA");
+                logDebug("Canal de datos ABIERTO");
                 clearTimeout(connectTimeout);
                 updateStatus('connected');
                 sounds.success.play().catch(()=>{});
                 conn.send({ type: 'sys-info', nickname: myNickname });
                 startPing();
-                startNetworkCheck(); // New Network Check
+                startNetworkCheck(); 
                 if (fileQueue.length > 0) processQueue();
             });
 
             conn.on('data', handleData);
             
             conn.on('close', () => {
-                logDebug("Conexión CERRADA");
+                logDebug("Canal de datos CERRADO");
                 updateStatus('disconnected');
                 stopPing();
                 stopNetworkCheck();
@@ -679,11 +739,11 @@
             });
         }
 
-        // --- NETWORK & STATS ANALYSIS (NEW) ---
+        // --- NETWORK & STATS ANALYSIS ---
 
         function startNetworkCheck() {
             if (statsInterval) clearInterval(statsInterval);
-            checkConnectionType(); // Initial check
+            checkConnectionType(); 
             statsInterval = setInterval(checkConnectionType, 5000);
         }
 
@@ -704,38 +764,29 @@
                     }
                 });
                 
-                // Fallback for some browsers
+                // Fallback
                 if (!selectedPair) {
                     stats.forEach(report => {
-                        if (report.type === 'candidate-pair' && report.selected) {
-                            selectedPair = report;
-                        }
+                        if (report.type === 'candidate-pair' && report.selected) selectedPair = report;
                     });
                 }
 
                 if (selectedPair) {
                     const localCandidate = stats.get(selectedPair.localCandidateId);
                     const remoteCandidate = stats.get(selectedPair.remoteCandidateId);
-                    
                     const localType = localCandidate ? localCandidate.candidateType : 'unknown';
                     const remoteType = remoteCandidate ? remoteCandidate.candidateType : 'unknown';
                     
                     logDebug(`ICE: ${localType} <-> ${remoteType}`);
                     
-                    let netLabel = "INTERNET (P2P)";
+                    let netLabel = "INTERNET";
                     let netClass = "text-yellow-400";
                     let netIcon = "globe";
                     
-                    // Logic to detect LAN
-                    // host-host is purely local
-                    // srflx-srflx is P2P over Internet (usually)
-                    // relay is TURN
-                    
                     if (localType === 'host' && remoteType === 'host') {
-                        netLabel = "LAN (ALTA VELOCIDAD)";
+                        netLabel = "LAN (WIFI DIRECTO)";
                         netClass = "text-emerald-400";
                         netIcon = "wifi";
-                        // Show toast only once if upgraded to LAN
                         if (ui.netType.innerText.includes('INTERNET')) showToast("Conexión Directa LAN Detectada", "success");
                     } else if (localType === 'relay' || remoteType === 'relay') {
                         netLabel = "RELAY (LENTO)";
@@ -750,7 +801,7 @@
                     lucide.createIcons();
                 }
             } catch (e) {
-                logDebug("Error obteniendo stats: " + e);
+                logDebug("Error stats: " + e);
             }
         }
 
@@ -783,7 +834,6 @@
             ui.pingText.innerText = latency + 'ms';
             ui.pingText.classList.remove('hidden');
             
-            // Ping is good indicator but stats are better
             if (latency < 20) {
                 ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border-2 border-[#0f172a] shadow-[0_0_8px_rgba(16,185,129,0.8)]";
             } else {
