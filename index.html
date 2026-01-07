@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SiurtecShare | P2P Ultimate</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,7 +15,7 @@
     <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.min.js"></script>
     <!-- QRCode.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <!-- Marked (Markdown support for chat) -->
+    <!-- Marked -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
     <style>
@@ -30,9 +30,10 @@
         body {
             background: radial-gradient(circle at top left, #0f172a, #020617);
             min-height: 100vh;
+            min-height: 100dvh; 
             color: #e2e8f0;
             font-family: 'Inter', sans-serif;
-            overflow-x: hidden;
+            overflow: hidden; 
         }
 
         .glass-panel {
@@ -56,63 +57,100 @@
 
         /* Tabs Logic */
         .tab-content { display: none; animation: fadeIn 0.3s ease; }
-        .tab-content.active { display: block; }
+        .tab-content.active { display: flex; } 
         .tab-btn.active { background: rgba(255,255,255,0.1); color: white; border-bottom: 2px solid #6366f1; }
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUpFade { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        @keyframes modalPop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 
         .history-item { animation: slideIn 0.3s ease-out forwards; }
-        .chat-bubble { max-width: 80%; word-wrap: break-word; }
+        .chat-bubble { max-width: 85%; word-wrap: break-word; }
         
         /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 
         #qrcode img { margin: 0 auto; border-radius: 8px; border: 4px solid white; }
+
+        /* Modal Overlay */
+        #modal-overlay {
+            backdrop-filter: blur(5px);
+            background: rgba(0, 0, 0, 0.6);
+        }
+        
+        /* Toast Notification */
+        .toast {
+            animation: slideUpFade 0.3s ease-out forwards;
+        }
     </style>
 </head>
-<body class="flex items-center justify-center p-4">
+<body class="flex items-center justify-center p-2 md:p-4 h-[100dvh]">
 
     <!-- Sounds -->
     <audio id="snd-success" src="https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3" preload="auto"></audio>
     <audio id="snd-notify" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
     <audio id="snd-message" src="https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3" preload="auto"></audio>
 
+    <!-- CUSTOM MODAL SYSTEM -->
+    <div id="modal-overlay" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div id="modal-container" class="glass-panel bg-[#0f172a]/90 w-full max-w-sm rounded-2xl p-6 shadow-2xl transform transition-all animate-[modalPop_0.3s_ease-out]">
+            <div class="flex justify-center mb-4">
+                <div id="modal-icon-bg" class="p-3 rounded-full bg-indigo-500/20">
+                    <i id="modal-icon" data-lucide="info" class="w-8 h-8 text-indigo-400"></i>
+                </div>
+            </div>
+            <h3 id="modal-title" class="text-xl font-bold text-white text-center mb-2">Título</h3>
+            <p id="modal-message" class="text-sm text-gray-300 text-center mb-6">Mensaje del modal aquí.</p>
+            
+            <div id="modal-input-container" class="hidden mb-6">
+                <input type="text" id="modal-input" class="w-full bg-black/30 border border-white/20 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors text-center" placeholder="...">
+            </div>
+
+            <div class="flex gap-3">
+                <button id="modal-btn-cancel" class="hidden flex-1 py-2.5 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 transition-colors text-sm font-medium">Cancelar</button>
+                <button id="modal-btn-confirm" class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors text-sm font-medium shadow-lg shadow-indigo-500/20">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toast-container" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[90] flex flex-col gap-2 pointer-events-none w-full max-w-xs items-center"></div>
+
     <!-- Main Container -->
-    <div class="w-full max-w-3xl glass-panel rounded-3xl p-6 md:p-8 relative overflow-hidden transition-all duration-500 flex flex-col h-[85vh]">
+    <div class="w-full max-w-3xl glass-panel rounded-2xl md:rounded-3xl p-4 md:p-8 relative overflow-hidden transition-all duration-500 flex flex-col h-full md:h-[90vh]">
         
         <!-- Header -->
-        <header class="flex justify-between items-center mb-6 shrink-0">
-            <div class="flex items-center gap-4">
-                <a href="https://siurtecshare.siurtec.com" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-gray-400 hover:text-white group" aria-label="Volver al inicio">
+        <header class="flex justify-between items-center mb-4 shrink-0">
+            <div class="flex items-center gap-3">
+                <a href="https://siurtecshare.siurtec.com" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-gray-400 hover:text-white group shrink-0" aria-label="Volver al inicio">
                     <i data-lucide="home" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
                 </a>
 
-                <div class="flex items-center gap-3 cursor-pointer" onclick="resetApp()">
+                <div class="flex items-center gap-2 cursor-pointer" onclick="resetApp()">
                     <div class="relative">
-                        <i data-lucide="zap" class="text-indigo-400 w-8 h-8"></i>
-                        <div id="ping-indicator" class="hidden absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0f172a]" title="Latencia baja (LAN)"></div>
+                        <i data-lucide="zap" class="text-indigo-400 w-6 h-6 md:w-8 md:h-8"></i>
+                        <div id="ping-indicator" class="hidden absolute -bottom-1 -right-1 w-2 h-2 md:w-3 md:h-3 bg-gray-500 rounded-full border-2 border-[#0f172a]" title="Estado Red"></div>
                     </div>
-                    <div>
-                        <h1 class="text-2xl font-bold tracking-tight text-white leading-none">SiurtecShare</h1>
-                        <p id="connected-peer-name" class="text-[10px] text-gray-500 font-mono hidden">Conectado con: <span class="text-indigo-300">...</span></p>
+                    <div class="overflow-hidden">
+                        <h1 class="text-lg md:text-2xl font-bold tracking-tight text-white leading-none truncate">SiurtecShare</h1>
+                        <p id="connected-peer-name" class="text-[10px] text-gray-500 font-mono hidden truncate max-w-[120px]">Con: <span class="text-indigo-300">...</span></p>
                     </div>
                 </div>
             </div>
             
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
                  <!-- Nickname Edit -->
-                 <button onclick="editNickname()" class="text-xs text-gray-400 hover:text-white flex items-center gap-1 bg-white/5 px-2 py-1 rounded-lg">
-                    <i data-lucide="user" class="w-3 h-3"></i> <span id="my-nickname">Yo</span>
+                 <button onclick="editNickname()" class="text-[10px] md:text-xs text-gray-400 hover:text-white flex items-center gap-1 bg-white/5 px-2 py-1.5 rounded-lg border border-white/5 truncate max-w-[100px]">
+                    <i data-lucide="user" class="w-3 h-3"></i> <span id="my-nickname" class="truncate">Yo</span>
                 </button>
 
-                <div id="connection-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 hidden">
-                    <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500"></div>
-                    <span id="status-text" class="text-xs font-medium text-gray-300">...</span>
-                    <span id="ping-text" class="text-[10px] text-gray-500 font-mono ml-1 hidden">0ms</span>
+                <div id="connection-status" class="flex items-center gap-2 px-2 py-1 rounded-full bg-white/5 border border-white/10 hidden">
+                    <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500 shrink-0"></div>
+                    <span id="status-text" class="text-[10px] font-medium text-gray-300 hidden sm:inline">...</span>
+                    <!-- Ping hidden by default, shown when connected -->
                 </div>
             </div>
         </header>
@@ -120,76 +158,96 @@
         <!-- APP BODY -->
         <div class="flex-grow flex flex-col relative overflow-hidden">
             
+            <!-- DEBUG OVERLAY -->
+            <div id="debug-overlay" class="hidden absolute top-0 left-0 w-full h-full bg-black/95 z-50 p-4 overflow-y-auto font-mono text-xs text-green-400">
+                <div class="flex justify-between items-center mb-4 border-b border-green-800 pb-2">
+                    <h3 class="font-bold text-white">DIAGNÓSTICO DE RED</h3>
+                    <button onclick="toggleDebug()" class="text-red-400 border border-red-400 px-2 py-1 rounded">CERRAR</button>
+                </div>
+                <div id="debug-log" class="space-y-1 pb-20"></div>
+            </div>
+            
             <!-- LANDING VIEW -->
-            <div id="landing-view" class="flex flex-col gap-6 animate-in fade-in zoom-in duration-500 flex-grow justify-center pb-20">
-                <div class="text-center mb-8">
-                    <h2 class="text-3xl font-bold text-white mb-2">Transferencia Directa P2P</h2>
-                    <p class="text-gray-400">Seguro, ilimitado, chat integrado y sin servidores.</p>
+            <div id="landing-view" class="flex flex-col gap-4 animate-in fade-in zoom-in duration-500 flex-grow justify-center pb-10">
+                <div class="text-center mb-4">
+                    <h2 class="text-2xl md:text-3xl font-bold text-white mb-2">P2P Directo</h2>
+                    <p class="text-sm text-gray-400 px-4">Transferencia en red local sin límites.</p>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button onclick="initHostFlow()" class="glass-panel p-8 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-indigo-500/30 relative overflow-hidden">
+                <div class="grid grid-cols-1 gap-4 overflow-y-auto px-1">
+                    <button onclick="initHostFlow()" class="glass-panel p-6 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-indigo-500/30 relative overflow-hidden">
                         <div class="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <i data-lucide="upload" class="w-24 h-24 text-indigo-500"></i>
+                            <i data-lucide="upload" class="w-20 h-20 text-indigo-500"></i>
                         </div>
-                        <div class="w-12 h-12 bg-indigo-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                            <i data-lucide="upload-cloud" class="w-6 h-6 text-indigo-400"></i>
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-indigo-500/20 rounded-xl flex items-center justify-center shrink-0">
+                                <i data-lucide="upload-cloud" class="w-6 h-6 text-indigo-400"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-white mb-0.5">Enviar</h3>
+                                <p class="text-xs text-gray-400">Crear sala y código.</p>
+                            </div>
                         </div>
-                        <h3 class="text-xl font-semibold text-white mb-1">Enviar</h3>
-                        <p class="text-sm text-gray-400">Crear sala y código QR.</p>
                     </button>
 
-                    <button onclick="showJoinUI()" class="glass-panel p-8 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-emerald-500/30 relative overflow-hidden">
+                    <button onclick="showJoinUI()" class="glass-panel p-6 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-emerald-500/30 relative overflow-hidden">
                         <div class="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <i data-lucide="download" class="w-24 h-24 text-emerald-500"></i>
+                            <i data-lucide="download" class="w-20 h-20 text-emerald-500"></i>
                         </div>
-                        <div class="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                            <i data-lucide="download" class="w-6 h-6 text-emerald-400"></i>
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
+                                <i data-lucide="download" class="w-6 h-6 text-emerald-400"></i>
+                            </div>
+                             <div>
+                                <h3 class="text-lg font-semibold text-white mb-0.5">Recibir</h3>
+                                <p class="text-xs text-gray-400">Usar código o escanear.</p>
+                            </div>
                         </div>
-                        <h3 class="text-xl font-semibold text-white mb-1">Recibir</h3>
-                        <p class="text-sm text-gray-400">Introducir código o escanear.</p>
                     </button>
                 </div>
             </div>
 
             <!-- JOIN VIEW -->
             <div id="join-view" class="hidden flex flex-col items-center justify-center flex-grow animate-in fade-in slide-in-from-bottom-4">
-                <h2 class="text-2xl font-bold text-white mb-6">Código de Sala</h2>
+                <h2 class="text-xl font-bold text-white mb-6">Código de Sala</h2>
                 <div class="relative w-full max-w-xs mb-6">
-                    <input type="text" id="code-input" maxlength="6" placeholder="000000" 
-                        class="w-full bg-black/30 border border-white/20 rounded-2xl px-4 py-4 text-center text-3xl font-mono tracking-[0.5em] text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all uppercase placeholder-gray-600">
+                    <input type="number" id="code-input" pattern="\d*" maxlength="6" placeholder="000000" 
+                        class="w-full bg-black/30 border border-white/20 rounded-2xl px-4 py-4 text-center text-3xl font-mono tracking-[0.5em] text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder-gray-600">
                 </div>
                 <div class="flex gap-3 w-full max-w-xs">
                     <button onclick="resetApp()" class="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 transition-colors">Volver</button>
                     <button onclick="joinWithManualCode()" class="flex-1 btn-primary py-3 rounded-xl text-white font-medium">Conectar</button>
                 </div>
+                <div class="mt-4">
+                    <button onclick="toggleDebug()" class="text-[10px] text-gray-500 underline">¿Problemas de conexión?</button>
+                </div>
             </div>
 
             <!-- CONNECTED VIEW (Tabs System) -->
-            <div id="connected-view" class="hidden flex-col h-full animate-in fade-in">
+            <div id="connected-view" class="hidden flex-col h-full animate-in fade-in overflow-hidden">
                 
-                <!-- Room Info Bar (Only for Host) -->
-                <div id="host-info-bar" class="hidden mb-4 flex justify-between items-center bg-black/20 p-3 rounded-xl border border-white/5">
-                    <div class="flex items-center gap-3">
-                         <div class="bg-indigo-500/10 p-2 rounded-lg cursor-pointer" onclick="toggleQR()">
+                <!-- Room Info Bar -->
+                <div id="room-info-bar" class="hidden mb-3 flex justify-between items-center bg-black/20 p-2 md:p-3 rounded-xl border border-white/5 shrink-0">
+                    <div class="flex items-center gap-3 min-w-0">
+                         <div id="qr-btn" class="bg-indigo-500/10 p-2 rounded-lg cursor-pointer shrink-0 hidden" onclick="toggleQR()">
                             <i data-lucide="qr-code" class="w-5 h-5 text-indigo-400"></i>
                          </div>
-                         <div>
-                             <p class="text-[10px] text-gray-400 uppercase tracking-wider">CÓDIGO</p>
-                             <p id="room-code-display" class="text-xl font-mono font-bold text-white tracking-widest cursor-pointer hover:text-indigo-300" onclick="copyCode()">...</p>
+                         <div class="min-w-0">
+                             <p class="text-[8px] md:text-[10px] text-gray-400 uppercase tracking-wider truncate" id="room-label">SALA</p>
+                             <p id="room-code-display" class="text-lg md:text-xl font-mono font-bold text-white tracking-widest cursor-pointer hover:text-indigo-300 truncate" onclick="copyCode()">...</p>
                          </div>
                     </div>
-                    <button onclick="toggleLinkShare()" class="text-xs text-gray-500 hover:text-white flex items-center gap-1">
+                    <button id="share-link-btn" onclick="toggleLinkShare()" class="text-[10px] md:text-xs text-gray-500 hover:text-white flex items-center gap-1 shrink-0 px-2 py-1 hidden">
                         <i data-lucide="link" class="w-3 h-3"></i> Link
                     </button>
-                    <!-- QR Modal -->
-                    <div id="qr-container" class="hidden absolute top-20 left-4 bg-white p-4 rounded-xl shadow-2xl z-50 animate-in zoom-in duration-200">
+                    
+                    <div id="qr-container" class="hidden absolute top-16 left-4 bg-white p-4 rounded-xl shadow-2xl z-50 animate-in zoom-in duration-200">
                         <div id="qrcode"></div>
+                        <button onclick="toggleQR()" class="mt-2 w-full text-center text-xs text-red-500 font-bold p-2">Cerrar</button>
                     </div>
                 </div>
 
-                <!-- Link Share Area -->
-                <div id="link-area" class="hidden mb-4 animate-in slide-in-from-top-2">
+                <div id="link-area" class="hidden mb-4 animate-in slide-in-from-top-2 shrink-0">
                     <div class="flex gap-2">
                         <input type="text" id="share-link" readonly class="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-indigo-300 focus:outline-none">
                         <button onclick="copyLink()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 rounded-lg"><i data-lucide="copy" class="w-4 h-4"></i></button>
@@ -197,67 +255,63 @@
                 </div>
 
                 <!-- TABS HEADER -->
-                <div class="flex border-b border-white/10 mb-4">
-                    <button onclick="switchTab('files')" id="tab-files-btn" class="tab-btn active flex-1 py-3 text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">
+                <div class="flex border-b border-white/10 mb-3 shrink-0">
+                    <button onclick="switchTab('files')" id="tab-files-btn" class="tab-btn active flex-1 py-2 text-xs md:text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">
                         <i data-lucide="layers" class="w-4 h-4"></i> Archivos <span id="queue-badge" class="hidden bg-indigo-500 text-white text-[10px] px-1.5 rounded-full">0</span>
                     </button>
-                    <button onclick="switchTab('chat')" id="tab-chat-btn" class="tab-btn flex-1 py-3 text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2 relative">
-                        <i data-lucide="message-square" class="w-4 h-4"></i> Chat / Texto <span id="chat-badge" class="hidden w-2 h-2 bg-red-500 rounded-full absolute top-3 right-4"></span>
+                    <button onclick="switchTab('chat')" id="tab-chat-btn" class="tab-btn flex-1 py-2 text-xs md:text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2 relative">
+                        <i data-lucide="message-square" class="w-4 h-4"></i> Chat <span id="chat-badge" class="hidden w-2 h-2 bg-red-500 rounded-full absolute top-2 right-4"></span>
                     </button>
                 </div>
 
                 <!-- TAB: FILES -->
                 <div id="tab-files" class="tab-content active flex-col h-full overflow-hidden">
-                    <!-- Drop Zone -->
-                    <div id="drop-area" class="drop-zone shrink-0 h-40 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 relative mb-4">
+                    <div id="drop-area" class="drop-zone shrink-0 h-32 md:h-40 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 relative mb-3 mx-1">
                         <input type="file" id="file-input" class="hidden" multiple>
-                        <i data-lucide="upload-cloud" class="w-8 h-8 text-indigo-400 mb-2"></i>
-                        <p class="text-sm font-medium text-white">Arrastra archivos o Ctrl+V</p>
+                        <i data-lucide="upload-cloud" class="w-6 h-6 md:w-8 md:h-8 text-indigo-400 mb-2"></i>
+                        <p class="text-xs md:text-sm font-medium text-white text-center">Toca para subir<br><span class="text-gray-500 text-[10px]">(o arrastra)</span></p>
                     </div>
 
-                    <!-- Active Transfer UI -->
-                    <div id="transfer-ui" class="hidden bg-indigo-900/20 p-4 rounded-2xl border border-indigo-500/20 mb-4">
+                    <div id="transfer-ui" class="hidden bg-indigo-900/20 p-3 rounded-2xl border border-indigo-500/20 mb-3 shrink-0">
                         <div class="flex justify-between items-center mb-2">
-                            <div class="flex items-center gap-3 overflow-hidden">
-                                <i data-lucide="loader-2" class="w-4 h-4 text-indigo-400 animate-spin"></i>
+                            <div class="flex items-center gap-2 overflow-hidden">
+                                <i data-lucide="loader-2" class="w-4 h-4 text-indigo-400 animate-spin shrink-0"></i>
                                 <div class="min-w-0">
-                                    <h3 id="file-name" class="font-medium text-white truncate text-sm">archivo.zip</h3>
+                                    <h3 id="file-name" class="font-medium text-white truncate text-xs">archivo.zip</h3>
                                     <p id="transfer-speed" class="text-[10px] text-indigo-300 font-mono">Iniciando...</p>
                                 </div>
                             </div>
-                            <div class="text-right">
-                                <span id="percent-text" class="text-lg font-bold text-white block">0%</span>
+                            <div class="text-right shrink-0">
+                                <span id="percent-text" class="text-sm font-bold text-white block">0%</span>
                                 <button onclick="cancelTransfer()" class="text-[10px] text-red-400 hover:text-red-300 underline">Cancelar</button>
                             </div>
                         </div>
-                        <div class="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden backdrop-blur-sm mb-1">
+                        <div class="w-full bg-gray-700/50 rounded-full h-1 overflow-hidden backdrop-blur-sm mb-1">
                             <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
                         </div>
                         <div class="flex justify-between text-[10px] text-gray-500 font-mono">
-                            <span id="storage-mode">Mode: Auto</span>
-                            <span id="eta-text">ETA: --s</span>
+                            <span id="storage-mode">Auto</span>
+                            <span id="eta-text">--s</span>
                         </div>
                     </div>
 
-                    <!-- History List -->
                     <div class="flex-grow overflow-y-auto no-scrollbar relative bg-black/10 rounded-2xl border border-white/5 p-2">
                         <div id="history-empty" class="absolute inset-0 flex flex-col items-center justify-center text-gray-600">
-                            <i data-lucide="history" class="w-8 h-8 mb-2 opacity-50"></i>
-                            <p class="text-xs">Historial de archivos</p>
+                            <i data-lucide="history" class="w-6 h-6 mb-2 opacity-50"></i>
+                            <p class="text-[10px]">Historial de sesión</p>
                         </div>
-                        <div id="history-list" class="space-y-2"></div>
+                        <div id="history-list" class="space-y-2 pb-10"></div>
                     </div>
                 </div>
 
                 <!-- TAB: CHAT -->
                 <div id="tab-chat" class="tab-content flex-col h-full overflow-hidden">
-                    <div id="chat-messages" class="flex-grow overflow-y-auto no-scrollbar bg-black/10 rounded-2xl border border-white/5 p-4 space-y-3 mb-4 flex flex-col">
-                        <!-- Messages go here -->
-                        <div class="text-center text-xs text-gray-600 my-4">Chat encriptado P2P iniciado</div>
+                    <div id="chat-messages" class="flex-grow overflow-y-auto no-scrollbar bg-black/10 rounded-2xl border border-white/5 p-3 space-y-2 mb-3 flex flex-col">
+                        <div class="text-center text-[10px] text-gray-600 my-4">Chat encriptado P2P iniciado</div>
                     </div>
-                    <div class="flex gap-2 shrink-0">
-                        <input type="text" id="chat-input" placeholder="Escribe un mensaje o pega una URL..." class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors" onkeypress="handleChatKey(event)">
-                        <button onclick="sendChat()" class="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl transition-colors">
+                    <div class="flex gap-2 shrink-0 pb-1">
+                        <input type="text" id="chat-input" placeholder="Mensaje..." class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors" onkeypress="handleChatKey(event)">
+                        <button onclick="sendChat()" class="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl transition-colors shrink-0">
                             <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
                     </div>
@@ -267,10 +321,13 @@
         </div>
 
         <!-- Footer -->
-        <div class="mt-4 pt-4 border-t border-white/5 text-center flex justify-between items-center shrink-0">
-            <p class="text-[10px] text-gray-600 font-mono">P2P ENCRYPTED • <span id="net-type">NET</span></p>
+        <div class="mt-2 pt-2 border-t border-white/5 text-center flex justify-between items-center shrink-0 pb-safe">
+            <p class="text-[10px] text-gray-600 font-mono flex items-center gap-1">
+                <i id="net-icon" data-lucide="globe" class="w-3 h-3 text-gray-500"></i>
+                <span id="net-type">ESPERANDO RED...</span>
+            </p>
             <div class="text-[10px] text-gray-600 flex items-center gap-1" id="wake-lock-status">
-                <i data-lucide="zap-off" class="w-3 h-3"></i> Power Saving
+                <i data-lucide="zap-off" class="w-3 h-3"></i> Eco
             </div>
         </div>
     </div>
@@ -279,25 +336,24 @@
         // --- CONFIG & STATE ---
         lucide.createIcons();
         
-        // CONFIGURACIÓN MEJORADA (OPTIMIZADA)
         const peerConfig = {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ],
-                iceTransportPolicy: 'all',
-                sdpSemantics: 'unified-plan'
+                iceTransportPolicy: 'all', // Permitir LAN y WAN
+                iceCandidatePoolSize: 10
             },
             debug: 1,
-            pingInterval: 5000
+            pingInterval: 2000
         };
 
         const APP_PREFIX = 'siurtec-share-v2-'; 
         let peer = null;
         let conn = null;
         let isHost = false;
-        let myNickname = localStorage.getItem('siurtec_nick') || 'Usuario_' + Math.floor(Math.random()*1000);
+        let myNickname = localStorage.getItem('siurtec_nick') || 'Movil_' + Math.floor(Math.random()*100);
         let peerNickname = "Desconocido";
         let connectTimeout = null;
         let connectionRetries = 0;
@@ -308,17 +364,21 @@
         let wakeLockSentinel = null;
         let pingStart = 0;
         let pingTimer = null;
+        let statsInterval = null;
 
-        // UI Refs (Sin cambios)
+        // UI Refs (Same as before)
         const ui = {
             landingView: document.getElementById('landing-view'),
             joinView: document.getElementById('join-view'),
             connectedView: document.getElementById('connected-view'),
-            hostInfoBar: document.getElementById('host-info-bar'),
+            roomInfoBar: document.getElementById('room-info-bar'),
+            roomCodeDisplay: document.getElementById('room-code-display'),
+            roomLabel: document.getElementById('room-label'),
+            qrBtn: document.getElementById('qr-btn'),
+            shareLinkBtn: document.getElementById('share-link-btn'),
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('status-text'),
             connectionStatus: document.getElementById('connection-status'),
-            roomCodeDisplay: document.getElementById('room-code-display'),
             codeInput: document.getElementById('code-input'),
             dropArea: document.getElementById('drop-area'),
             fileInput: document.getElementById('file-input'),
@@ -340,7 +400,21 @@
             connectedPeerName: document.getElementById('connected-peer-name'),
             queueBadge: document.getElementById('queue-badge'),
             chatBadge: document.getElementById('chat-badge'),
-            netType: document.getElementById('net-type')
+            netType: document.getElementById('net-type'),
+            netIcon: document.getElementById('net-icon'),
+            // Modal refs
+            modalOverlay: document.getElementById('modal-overlay'),
+            modalContainer: document.getElementById('modal-container'),
+            modalIcon: document.getElementById('modal-icon'),
+            modalIconBg: document.getElementById('modal-icon-bg'),
+            modalTitle: document.getElementById('modal-title'),
+            modalMessage: document.getElementById('modal-message'),
+            modalInputContainer: document.getElementById('modal-input-container'),
+            modalInput: document.getElementById('modal-input'),
+            modalBtnCancel: document.getElementById('modal-btn-cancel'),
+            modalBtnConfirm: document.getElementById('modal-btn-confirm'),
+            toastContainer: document.getElementById('toast-container'),
+            debugLog: document.getElementById('debug-log')
         };
 
         const sounds = {
@@ -352,9 +426,83 @@
         const CHUNK_SIZE = 16 * 1024;
         const BUFFER_THRESHOLD = 64 * 1024;
 
+        // --- DEBUG & LOGGING ---
+        function logDebug(msg) {
+            const time = new Date().toLocaleTimeString();
+            ui.debugLog.innerHTML += `<div class="border-b border-green-900/50 pb-1 mb-1"><span class="text-green-600">[${time}]</span> ${msg}</div>`;
+            ui.debugLog.scrollTop = ui.debugLog.scrollHeight;
+            console.log(`[Siurtec] ${msg}`);
+        }
+
+        function toggleDebug() {
+            const dbg = document.getElementById('debug-overlay');
+            dbg.classList.toggle('hidden');
+        }
+
+        // --- CUSTOM MODAL & TOAST SYSTEM (Existing) ---
+        function showToast(msg, type='info') {
+            const toast = document.createElement('div');
+            const colors = type === 'success' ? 'bg-emerald-500/90' : type === 'error' ? 'bg-red-500/90' : 'bg-indigo-500/90';
+            const icon = type === 'success' ? 'check' : type === 'error' ? 'alert-circle' : 'info';
+            toast.className = `toast flex items-center gap-2 px-4 py-3 rounded-xl backdrop-blur text-white text-sm font-medium shadow-lg ${colors}`;
+            toast.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4"></i> <span>${msg}</span>`;
+            ui.toastContainer.appendChild(toast);
+            lucide.createIcons();
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(10px)'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function showModal({ title, message, type = 'info', confirmText = 'Aceptar', cancelText = 'Cancelar', inputPlaceholder = null }) {
+            return new Promise((resolve) => {
+                let icon = 'info', bgClass = 'bg-indigo-500/20', textClass = 'text-indigo-400';
+                if (type === 'success') { icon = 'check'; bgClass = 'bg-emerald-500/20'; textClass = 'text-emerald-400'; }
+                if (type === 'error') { icon = 'alert-triangle'; bgClass = 'bg-red-500/20'; textClass = 'text-red-400'; }
+                if (type === 'confirm') { icon = 'help-circle'; bgClass = 'bg-yellow-500/20'; textClass = 'text-yellow-400'; }
+                if (type === 'edit') { icon = 'edit-2'; }
+
+                ui.modalTitle.innerText = title;
+                ui.modalMessage.innerText = message;
+                ui.modalBtnConfirm.innerText = confirmText;
+                ui.modalBtnCancel.innerText = cancelText;
+                
+                ui.modalIcon.setAttribute('data-lucide', icon);
+                ui.modalIcon.className = `w-8 h-8 ${textClass}`;
+                ui.modalIconBg.className = `p-3 rounded-full ${bgClass}`;
+                
+                if (type === 'confirm' || type === 'edit') ui.modalBtnCancel.classList.remove('hidden');
+                else ui.modalBtnCancel.classList.add('hidden');
+
+                if (inputPlaceholder !== null) {
+                    ui.modalInputContainer.classList.remove('hidden');
+                    ui.modalInput.value = "";
+                    ui.modalInput.placeholder = inputPlaceholder;
+                    setTimeout(() => ui.modalInput.focus(), 100);
+                } else {
+                    ui.modalInputContainer.classList.add('hidden');
+                }
+
+                const close = (val) => {
+                    ui.modalOverlay.classList.add('hidden');
+                    ui.modalBtnConfirm.onclick = null;
+                    ui.modalBtnCancel.onclick = null;
+                    ui.modalInput.onkeydown = null;
+                    resolve(val);
+                };
+
+                ui.modalBtnConfirm.onclick = () => {
+                    if (inputPlaceholder !== null) close(ui.modalInput.value);
+                    else close(true);
+                };
+                ui.modalBtnCancel.onclick = () => close(false);
+                ui.modalInput.onkeydown = (e) => { if (e.key === 'Enter') ui.modalBtnConfirm.click(); };
+                ui.modalOverlay.classList.remove('hidden');
+                lucide.createIcons();
+            });
+        }
+
         // --- INIT ---
         function init() {
             ui.myNicknameDisplay.innerText = myNickname;
+            logDebug("Iniciando aplicación v2.2...");
             
             const hash = window.location.hash.substring(1);
             if (hash) {
@@ -373,26 +521,24 @@
                 document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
                 document.getElementById(`tab-${tabName}`).classList.add('active');
                 document.getElementById(`tab-${tabName}-btn`).classList.add('active');
-                if (tabName === 'chat') { ui.chatBadge.classList.add('hidden'); ui.chatInput.focus(); }
+                if (tabName === 'chat') { ui.chatBadge.classList.add('hidden'); setTimeout(() => ui.chatInput.focus(), 100); }
             };
         }
 
-        function editNickname() {
-            const newNick = prompt("Elige tu nombre visible:", myNickname);
+        async function editNickname() {
+            const newNick = await showModal({ title: "Cambiar Apodo", message: "Elige cómo te verán los demás:", inputPlaceholder: myNickname, confirmText: "Guardar", type: 'edit' });
             if (newNick && newNick.trim() !== "") {
                 myNickname = newNick.trim().substring(0, 15);
                 localStorage.setItem('siurtec_nick', myNickname);
                 ui.myNicknameDisplay.innerText = myNickname;
-                if(conn && conn.open) {
-                    conn.send({ type: 'sys-info', nickname: myNickname });
-                }
+                if(conn && conn.open) conn.send({ type: 'sys-info', nickname: myNickname });
+                showToast("Apodo actualizado", "success");
             }
         }
 
-        function resetApp() {
-            if(confirm("¿Desconectar y volver al inicio?")) {
-                window.location.href = window.location.pathname;
-            }
+        async function resetApp() {
+            const confirmed = await showModal({ title: "Desconectar", message: "¿Seguro que quieres cerrar la sesión?", type: 'confirm', confirmText: "Salir", cancelText: "Cancelar" });
+            if(confirmed) window.location.href = window.location.pathname;
         }
 
         // --- CONNECTION LOGIC ---
@@ -401,9 +547,14 @@
             ui.landingView.classList.add('hidden');
             ui.connectedView.classList.remove('hidden');
             ui.connectedView.classList.add('flex');
-            ui.hostInfoBar.classList.remove('hidden'); 
+            
+            ui.roomInfoBar.classList.remove('hidden');
+            ui.roomInfoBar.classList.add('flex');
+            ui.qrBtn.classList.remove('hidden');
+            ui.shareLinkBtn.classList.remove('hidden');
+            ui.roomLabel.innerText = "TU CÓDIGO";
+            
             isHost = true;
-
             updateStatus('waiting');
             const shortCode = Math.floor(100000 + Math.random() * 900000).toString();
             ui.roomCodeDisplay.innerText = shortCode;
@@ -411,13 +562,9 @@
             const link = `${window.location.origin}${window.location.pathname}#${shortCode}`;
             ui.shareLink.value = link;
 
-            new QRCode(document.getElementById("qrcode"), {
-                text: link,
-                width: 128, height: 128,
-                colorDark : "#000000", colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.L
-            });
+            new QRCode(document.getElementById("qrcode"), { text: link, width: 128, height: 128, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.L });
 
+            logDebug(`Creando sala HOST: ${shortCode}`);
             peer = new Peer(APP_PREFIX + shortCode, peerConfig);
             setupPeerEvents();
         }
@@ -433,80 +580,77 @@
             ui.joinView.classList.add('hidden');
             ui.connectedView.classList.remove('hidden');
             ui.connectedView.classList.add('flex');
+            ui.roomInfoBar.classList.remove('hidden');
+            ui.roomInfoBar.classList.add('flex');
+            ui.roomLabel.innerText = "CONECTADO A";
+            ui.roomCodeDisplay.innerText = code;
+            ui.qrBtn.classList.add('hidden');
+            ui.shareLinkBtn.classList.add('hidden');
+
             isHost = false;
             connectionRetries = 0;
-
             updateStatus('connecting');
+            logDebug(`Iniciando GUEST hacia: ${code}`);
             
-            // Timeout genérico para evitar hang
             connectTimeout = setTimeout(() => {
                 if (ui.statusText.innerText === 'Conectando...' || ui.statusText.innerText.includes('Reintentando')) {
                     updateStatus('error');
-                    alert("⚠️ Tiempo de espera agotado.\n\nEl dispositivo anfitrión no responde. Verifica el código o recarga la página en ambos dispositivos.");
-                    resetApp();
+                    showModal({ title: "Tiempo Agotado", message: "El dispositivo anfitrión no responde.\nVerifica el código.", type: 'error' }).then(() => resetApp());
                 }
-            }, 25000); // 25s timeout total
+            }, 30000); 
 
             peer = new Peer(null, peerConfig);
             
-            // MANEJO DE ERRORES INTELIGENTE (RETRY LOGIC)
             peer.on('error', (err) => {
-                console.error("Peer Error:", err.type);
+                logDebug(`Error Peer: ${err.type}`);
                 if (err.type === 'peer-unavailable') {
                     if (connectionRetries < MAX_RETRIES) {
                         connectionRetries++;
                         updateStatus('connecting');
-                        ui.statusText.innerText = `Reintentando (${connectionRetries}/${MAX_RETRIES})...`;
-                        
+                        ui.statusText.innerText = `Reintentando (${connectionRetries})...`;
                         setTimeout(() => {
                             if (conn) conn.close();
-                            console.log("Reintentando conexión a:", APP_PREFIX + code);
                             conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
                             setupConnectionEvents();
                         }, 2000);
                     } else {
                         updateStatus('error');
-                        alert("No se encuentra el dispositivo anfitrión. Asegúrate de que el código es correcto.");
-                        resetApp();
+                        showModal({ title: "No Encontrado", message: "No se encuentra el host.", type: 'error' }).then(() => resetApp());
                     }
                 } else {
-                    alert("Error crítico: " + err.type);
-                    resetApp();
+                    showModal({ title: "Error", message: err.type, type: 'error' }).then(() => resetApp());
                 }
             });
             
             peer.on('open', () => {
-                // Primer intento
+                logDebug("Peer abierto, conectando...");
                 conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
                 setupConnectionEvents();
             });
         }
 
-        function joinWithManualCode() {
+        async function joinWithManualCode() {
             const code = ui.codeInput.value.trim();
-            if (code.length < 5) return alert("Código inválido");
+            if (code.length < 5) { await showModal({ title: "Código Inválido", message: "Mínimo 5 dígitos.", type: 'error' }); return; }
             initGuestFlow(code);
         }
 
         function setupPeerEvents() {
-            peer.on('open', (id) => updateStatus('waiting'));
+            peer.on('open', (id) => {
+                updateStatus('waiting');
+                logDebug(`Peer ID asignado: ${id}`);
+            });
             
             peer.on('connection', (connection) => {
-                if(conn) { 
-                    console.log("Cerrando conexión antigua para aceptar nueva...");
-                    conn.close(); 
-                }
+                logDebug("Nueva conexión entrante...");
+                if(conn) { conn.close(); logDebug("Cerrando conexión previa"); }
                 conn = connection;
                 setupConnectionEvents();
             });
 
             peer.on('error', (err) => {
-                if(err.type === 'unavailable-id') { 
-                    peer.destroy(); 
-                    initHostFlow(); 
-                } else {
-                    console.error(err);
-                }
+                logDebug(`Peer Error: ${err.type}`);
+                if(err.type === 'unavailable-id') { peer.destroy(); initHostFlow(); }
             });
         }
 
@@ -514,30 +658,103 @@
             if (!conn) return;
             
             conn.on('open', () => {
+                logDebug("Conexión de datos ABIERTA");
                 clearTimeout(connectTimeout);
                 updateStatus('connected');
                 sounds.success.play().catch(()=>{});
                 conn.send({ type: 'sys-info', nickname: myNickname });
                 startPing();
+                startNetworkCheck(); // New Network Check
                 if (fileQueue.length > 0) processQueue();
             });
 
             conn.on('data', handleData);
             
             conn.on('close', () => {
+                logDebug("Conexión CERRADA");
                 updateStatus('disconnected');
                 stopPing();
-                alert("Peer desconectado.");
-                resetApp();
-            });
-            
-            // Error en la conexión de datos específica
-            conn.on('error', (err) => {
-                console.error("Conn Error:", err);
+                stopNetworkCheck();
+                showModal({ title: "Desconectado", message: "Conexión cerrada.", type: 'info' }).then(() => resetApp());
             });
         }
 
-        // --- PING / SYSTEM INFO ---
+        // --- NETWORK & STATS ANALYSIS (NEW) ---
+
+        function startNetworkCheck() {
+            if (statsInterval) clearInterval(statsInterval);
+            checkConnectionType(); // Initial check
+            statsInterval = setInterval(checkConnectionType, 5000);
+        }
+
+        function stopNetworkCheck() {
+            if (statsInterval) clearInterval(statsInterval);
+        }
+
+        async function checkConnectionType() {
+            if (!conn || !conn.peerConnection) return;
+            
+            try {
+                const stats = await conn.peerConnection.getStats();
+                let selectedPair = null;
+                
+                stats.forEach(report => {
+                    if (report.type === 'transport' && report.selectedCandidatePairId) {
+                        selectedPair = stats.get(report.selectedCandidatePairId);
+                    }
+                });
+                
+                // Fallback for some browsers
+                if (!selectedPair) {
+                    stats.forEach(report => {
+                        if (report.type === 'candidate-pair' && report.selected) {
+                            selectedPair = report;
+                        }
+                    });
+                }
+
+                if (selectedPair) {
+                    const localCandidate = stats.get(selectedPair.localCandidateId);
+                    const remoteCandidate = stats.get(selectedPair.remoteCandidateId);
+                    
+                    const localType = localCandidate ? localCandidate.candidateType : 'unknown';
+                    const remoteType = remoteCandidate ? remoteCandidate.candidateType : 'unknown';
+                    
+                    logDebug(`ICE: ${localType} <-> ${remoteType}`);
+                    
+                    let netLabel = "INTERNET (P2P)";
+                    let netClass = "text-yellow-400";
+                    let netIcon = "globe";
+                    
+                    // Logic to detect LAN
+                    // host-host is purely local
+                    // srflx-srflx is P2P over Internet (usually)
+                    // relay is TURN
+                    
+                    if (localType === 'host' && remoteType === 'host') {
+                        netLabel = "LAN (ALTA VELOCIDAD)";
+                        netClass = "text-emerald-400";
+                        netIcon = "wifi";
+                        // Show toast only once if upgraded to LAN
+                        if (ui.netType.innerText.includes('INTERNET')) showToast("Conexión Directa LAN Detectada", "success");
+                    } else if (localType === 'relay' || remoteType === 'relay') {
+                        netLabel = "RELAY (LENTO)";
+                        netClass = "text-red-400";
+                        netIcon = "cloud-lightning";
+                    }
+
+                    ui.netType.innerText = netLabel;
+                    ui.netType.className = `font-bold ${netClass}`;
+                    ui.netIcon.setAttribute('data-lucide', netIcon);
+                    ui.netIcon.className = `w-3 h-3 ${netClass}`;
+                    lucide.createIcons();
+                }
+            } catch (e) {
+                logDebug("Error obteniendo stats: " + e);
+            }
+        }
+
+        // --- PING ---
 
         function startPing() {
             if(pingTimer) clearInterval(pingTimer);
@@ -566,15 +783,11 @@
             ui.pingText.innerText = latency + 'ms';
             ui.pingText.classList.remove('hidden');
             
-            if (latency < 10) {
-                ui.pingIndicator.classList.remove('hidden');
-                ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#0f172a] shadow-[0_0_8px_rgba(16,185,129,0.8)]";
-                ui.netType.innerText = "LOCAL LAN (FAST)";
-                ui.netType.classList.add('text-emerald-400');
+            // Ping is good indicator but stats are better
+            if (latency < 20) {
+                ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border-2 border-[#0f172a] shadow-[0_0_8px_rgba(16,185,129,0.8)]";
             } else {
-                ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full border-2 border-[#0f172a]";
-                ui.netType.innerText = "RELAY/INTERNET";
-                ui.netType.classList.remove('text-emerald-400');
+                ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full border-2 border-[#0f172a]";
             }
         }
 
@@ -594,12 +807,10 @@
         setupDragAndDrop();
 
         function handlePaste(e) {
-            if (document.activeElement === ui.chatInput) return;
+            if (document.activeElement === ui.chatInput || document.activeElement === ui.modalInput) return;
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
             const files = [];
-            for (let item of items) {
-                if (item.kind === 'file') files.push(item.getAsFile());
-            }
+            for (let item of items) { if (item.kind === 'file') files.push(item.getAsFile()); }
             if (files.length > 0) handleFiles(files);
         }
 
@@ -619,16 +830,14 @@
             if (fileQueue.length === 0) { isTransferring = false; releaseWakeLock(); return; }
             isTransferring = true;
             requestWakeLock();
-            
             const file = fileQueue.shift();
             updateQueueUI();
-            
             try {
                 await sendFile(file);
                 addHistoryItem(file, 'sent');
                 setTimeout(processQueue, 200);
             } catch (err) {
-                console.error(err);
+                logDebug("Error envio: " + err);
                 isTransferring = false;
             }
         }
@@ -649,6 +858,7 @@
                     reject("Cancelled");
                     ui.transferUI.classList.add('hidden');
                     ui.dropArea.classList.remove('hidden');
+                    showToast("Cancelado", "info");
                 };
 
                 conn.send({ type: 'metadata', name: file.name, size: file.size, mime: file.type });
@@ -704,12 +914,9 @@
                 receiveBuffer = [];
                 receiveStart = Date.now();
                 requestWakeLock();
-                
                 if (!document.getElementById('tab-files').classList.contains('active')) {
-                     ui.queueBadge.classList.remove('hidden'); 
-                     ui.queueBadge.innerText = "!";
+                     ui.queueBadge.classList.remove('hidden'); ui.queueBadge.innerText = "!";
                 }
-
                 ui.dropArea.classList.add('hidden');
                 ui.transferUI.classList.remove('hidden');
                 ui.fileName.innerText = data.name;
@@ -719,44 +926,30 @@
                         const handle = await window.showSaveFilePicker({ suggestedName: data.name });
                         const writable = await handle.createWritable();
                         streamWriter = writable; 
-                        ui.storageMode.innerText = "Native Disk Write";
+                        ui.storageMode.innerText = "Disco Nativo";
                         return;
-                    } catch (err) {
-                        console.log("Native FS cancelled/failed, falling back to StreamSaver");
-                    }
+                    } catch (err) { logDebug("NativeFS cancelado"); }
                 }
-                
                 try {
                     const fileStream = streamSaver.createWriteStream(data.name, { size: data.size });
                     streamWriter = fileStream.getWriter();
-                    ui.storageMode.innerText = "Direct Stream";
+                    ui.storageMode.innerText = "Stream";
                     window.onbeforeunload = () => streamWriter.abort();
-                } catch(e) {
-                    ui.storageMode.innerText = "RAM Buffer";
-                }
+                } catch(e) { ui.storageMode.innerText = "RAM"; }
                 return;
             }
 
-            if (data.type === 'end') {
-                finalizeTransfer();
-                return;
-            }
+            if (data.type === 'end') { finalizeTransfer(); return; }
 
             receivedBytes += data.byteLength;
             updateProgress(receivedBytes, incomingInfo.size, receiveStart);
-            
-            if (streamWriter) {
-                await streamWriter.write(new Uint8Array(data));
-            } else {
-                receiveBuffer.push(data);
-            }
+            if (streamWriter) await streamWriter.write(new Uint8Array(data));
+            else receiveBuffer.push(data);
         }
 
         async function finalizeTransfer() {
-            if (streamWriter) {
-                await streamWriter.close();
-                streamWriter = null;
-            } else {
+            if (streamWriter) { await streamWriter.close(); streamWriter = null; } 
+            else {
                 const blob = new Blob(receiveBuffer, { type: incomingInfo.mime });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -766,7 +959,6 @@
                 finishTransferUI();
                 return;
             }
-
             addHistoryItem(incomingInfo, 'received');
             finishTransferUI();
         }
@@ -777,110 +969,95 @@
             ui.dropArea.classList.remove('hidden');
             releaseWakeLock();
             sounds.notify.play().catch(()=>{});
-            
-            if(document.hidden) new Notification("Archivo Recibido", { body: incomingInfo.name });
+            if(document.hidden) new Notification("Recibido", { body: incomingInfo.name });
+            showToast("Archivo recibido", "success");
         }
 
         function handleAbort() {
              if(streamWriter) streamWriter.abort();
              ui.transferUI.classList.add('hidden');
              ui.dropArea.classList.remove('hidden');
-             alert("Transferencia cancelada por el emisor.");
+             showToast("Cancelado por emisor", "error");
         }
 
         // --- CHAT LOGIC ---
-
         function handleChatKey(e) { if(e.key === 'Enter') sendChat(); }
-
         function sendChat() {
             const text = ui.chatInput.value.trim();
             if(!text || !conn) return;
-            
             const msg = { type: 'chat', text: text, sender: myNickname, time: Date.now() };
             conn.send(msg);
             appendChatBubble(msg, true);
             ui.chatInput.value = '';
         }
-
         function receiveChat(msg) {
             appendChatBubble(msg, false);
             sounds.message.play().catch(()=>{});
             if (!document.getElementById('tab-chat').classList.contains('active')) {
                 ui.chatBadge.classList.remove('hidden');
+                showToast("Nuevo mensaje", "info");
             }
         }
-
         function appendChatBubble(msg, isMe) {
             const div = document.createElement('div');
             div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
-            
             let content = msg.text;
             const linkRegex = /(https?:\/\/[^\s]+)/g;
-            if (linkRegex.test(content)) {
-                content = content.replace(linkRegex, '<a href="$1" target="_blank" class="underline text-indigo-300">$1</a>');
-            }
-
+            if (linkRegex.test(content)) content = content.replace(linkRegex, '<a href="$1" target="_blank" class="underline text-indigo-300">$1</a>');
             div.innerHTML = `
-                <div class="chat-bubble px-4 py-2 rounded-2xl text-sm ${isMe ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white/10 text-gray-200 rounded-tl-none'}">
+                <div class="chat-bubble px-3 py-2 rounded-2xl text-xs md:text-sm ${isMe ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white/10 text-gray-200 rounded-tl-none'}">
                     ${content}
                 </div>
-                <span class="text-[10px] text-gray-500 mt-1">${isMe ? 'Yo' : msg.sender} • ${new Date(msg.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                <span class="text-[8px] text-gray-500 mt-1">${isMe ? 'Yo' : msg.sender} • ${new Date(msg.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
             `;
             ui.chatMessages.appendChild(div);
             ui.chatMessages.scrollTop = ui.chatMessages.scrollHeight;
         }
 
         // --- UTILS ---
-
         function updateStatus(st) {
             ui.connectionStatus.classList.remove('hidden');
             ui.connectionStatus.classList.add('flex');
-            
             const config = {
                 'connected': { color: 'bg-emerald-500', text: 'Conectado', textCol: 'text-emerald-400' },
-                'disconnected': { color: 'bg-red-500', text: 'Desconectado', textCol: 'text-red-400' },
+                'disconnected': { color: 'bg-red-500', text: 'Offline', textCol: 'text-red-400' },
                 'waiting': { color: 'bg-yellow-500', text: 'Esperando...', textCol: 'text-yellow-400' },
-                'connecting': { color: 'bg-blue-500', text: 'Conectando...', textCol: 'text-blue-400' },
+                'connecting': { color: 'bg-blue-500', text: '...', textCol: 'text-blue-400' },
                 'error': { color: 'bg-red-500', text: 'Error', textCol: 'text-red-400' }
             }[st] || { color: 'bg-gray-500', text: st };
-
-            ui.statusDot.className = `w-2 h-2 rounded-full ${config.color} ${st === 'connected' ? 'pulse-dot' : ''}`;
+            ui.statusDot.className = `w-2 h-2 rounded-full ${config.color} shrink-0 ${st === 'connected' ? 'pulse-dot' : ''}`;
             ui.statusText.innerText = config.text;
-            ui.statusText.className = `text-xs font-medium ${config.textCol || 'text-gray-300'}`;
+            ui.statusText.className = `text-[10px] md:text-xs font-medium ${config.textCol || 'text-gray-300'} hidden sm:inline`;
         }
 
         function updateProgress(loaded, total, start) {
             const pct = ((loaded/total)*100).toFixed(0);
             ui.progressBar.style.width = `${pct}%`;
             ui.percentText.innerText = `${pct}%`;
-            
             const elapsed = (Date.now() - start)/1000;
             const rate = loaded/elapsed;
             ui.speedText.innerText = formatBytes(rate) + '/s';
-            if(rate > 0) ui.etaText.innerText = `ETA: ${Math.ceil((total-loaded)/rate)}s`;
+            if(rate > 0) ui.etaText.innerText = `~${Math.ceil((total-loaded)/rate)}s`;
         }
 
         function addHistoryItem(file, direction, blob = null) {
             ui.historyEmpty.classList.add('hidden');
             const isImg = file.type && file.type.startsWith('image/');
             const color = direction === 'sent' ? 'text-indigo-400' : 'text-emerald-400';
-            
             let iconHtml = `<i data-lucide="${isImg?'image':'file'}" class="w-4 h-4 text-white"></i>`;
-            
             if (isImg && blob) {
                 const url = URL.createObjectURL(blob);
                 iconHtml = `<img src="${url}" class="w-8 h-8 object-cover rounded-md border border-white/20" onclick="window.open('${url}')">`;
             }
-
             const item = document.createElement('div');
             item.className = "history-item flex items-center justify-between p-2 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors";
             item.innerHTML = `
                 <div class="flex items-center gap-3 overflow-hidden">
-                    <div class="w-10 h-10 flex items-center justify-center bg-black/30 rounded-lg shrink-0">
+                    <div class="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-black/30 rounded-lg shrink-0">
                         ${iconHtml}
                     </div>
                     <div class="min-w-0">
-                        <p class="text-sm font-medium text-gray-200 truncate">${file.name}</p>
+                        <p class="text-xs md:text-sm font-medium text-gray-200 truncate">${file.name}</p>
                         <p class="text-[10px] text-gray-500">${formatBytes(file.size)} • ${direction==='sent'?'Enviado':'Recibido'}</p>
                     </div>
                 </div>
@@ -899,7 +1076,7 @@
         }
         function releaseWakeLock() {
             if(wakeLockSentinel) { wakeLockSentinel.release(); wakeLockSentinel=null; }
-            ui.wakeLockStatus.innerHTML = '<i data-lucide="zap-off" class="w-3 h-3"></i> Ahorro Energía';
+            ui.wakeLockStatus.innerHTML = '<i data-lucide="zap-off" class="w-3 h-3"></i> Eco';
             lucide.createIcons();
         }
 
@@ -911,11 +1088,24 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
 
-        function toggleQR() { document.getElementById('qr-container').classList.toggle('hidden'); }
+        function toggleQR() { 
+            const container = document.getElementById('qr-container');
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                const closeHandler = (e) => {
+                    if (!container.contains(e.target) && !document.getElementById('qr-btn').contains(e.target)) {
+                        container.classList.add('hidden');
+                        document.removeEventListener('click', closeHandler);
+                    }
+                };
+                setTimeout(() => document.addEventListener('click', closeHandler), 10);
+            } else { container.classList.add('hidden'); }
+        }
+        
         function toggleLinkShare() { document.getElementById('link-area').classList.toggle('hidden'); }
-        function copyCode() { navigator.clipboard.writeText(ui.roomCodeDisplay.innerText); alert("Código copiado"); }
-        function copyLink() { navigator.clipboard.writeText(ui.shareLink.value); alert("Enlace copiado"); }
-
+        function copyCode() { navigator.clipboard.writeText(ui.roomCodeDisplay.innerText); showToast("Código copiado", "success"); }
+        function copyLink() { navigator.clipboard.writeText(ui.shareLink.value); showToast("Link copiado", "success"); }
+        
         // Start
         init();
 
