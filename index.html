@@ -279,30 +279,29 @@
         // --- CONFIG & STATE ---
         lucide.createIcons();
         
-        // CONFIGURACIÓN MEJORADA (FIX PARA REDES LOCALES)
+        // CONFIGURACIÓN MEJORADA (OPTIMIZADA)
         const peerConfig = {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ],
-                iceTransportPolicy: 'all', // Forzar todas las rutas (LAN/WAN)
+                iceTransportPolicy: 'all',
                 sdpSemantics: 'unified-plan'
             },
             debug: 1,
             pingInterval: 5000
         };
 
-        const APP_PREFIX = 'siurtec-share-v2-'; // v2 prefix
+        const APP_PREFIX = 'siurtec-share-v2-'; 
         let peer = null;
         let conn = null;
         let isHost = false;
         let myNickname = localStorage.getItem('siurtec_nick') || 'Usuario_' + Math.floor(Math.random()*1000);
         let peerNickname = "Desconocido";
-        let connectTimeout = null; // Timer para detectar fallos de conexión
+        let connectTimeout = null;
+        let connectionRetries = 0;
+        const MAX_RETRIES = 3;
         
         let fileQueue = [];
         let isTransferring = false;
@@ -310,7 +309,7 @@
         let pingStart = 0;
         let pingTimer = null;
 
-        // UI Refs
+        // UI Refs (Sin cambios)
         const ui = {
             landingView: document.getElementById('landing-view'),
             joinView: document.getElementById('join-view'),
@@ -369,18 +368,12 @@
 
             document.addEventListener('paste', handlePaste);
             
-            // Tab switching logic
             window.switchTab = (tabName) => {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-                
                 document.getElementById(`tab-${tabName}`).classList.add('active');
                 document.getElementById(`tab-${tabName}-btn`).classList.add('active');
-
-                if (tabName === 'chat') {
-                    ui.chatBadge.classList.add('hidden');
-                    ui.chatInput.focus();
-                }
+                if (tabName === 'chat') { ui.chatBadge.classList.add('hidden'); ui.chatInput.focus(); }
             };
         }
 
@@ -408,7 +401,7 @@
             ui.landingView.classList.add('hidden');
             ui.connectedView.classList.remove('hidden');
             ui.connectedView.classList.add('flex');
-            ui.hostInfoBar.classList.remove('hidden'); // Show host controls
+            ui.hostInfoBar.classList.remove('hidden'); 
             isHost = true;
 
             updateStatus('waiting');
@@ -441,28 +434,51 @@
             ui.connectedView.classList.remove('hidden');
             ui.connectedView.classList.add('flex');
             isHost = false;
+            connectionRetries = 0;
 
             updateStatus('connecting');
             
-            // Timeout de Seguridad: Avisar si se queda pillado conectando
+            // Timeout genérico para evitar hang
             connectTimeout = setTimeout(() => {
-                if (ui.statusText.innerText === 'Conectando...') {
+                if (ui.statusText.innerText === 'Conectando...' || ui.statusText.innerText.includes('Reintentando')) {
                     updateStatus('error');
-                    alert("⚠️ No se ha podido conectar.\n\nSugerencias:\n1. Si usas Windows, revisa que el FIREWALL no bloquee al navegador.\n2. Asegúrate que ambos dispositivos tienen internet.\n3. Recarga ambas páginas e inténtalo de nuevo.");
+                    alert("⚠️ Tiempo de espera agotado.\n\nEl dispositivo anfitrión no responde. Verifica el código o recarga la página en ambos dispositivos.");
                     resetApp();
                 }
-            }, 15000); // 15s timeout
+            }, 25000); // 25s timeout total
 
             peer = new Peer(null, peerConfig);
             
-            peer.on('open', () => {
-                conn = peer.connect(APP_PREFIX + code, { reliable: true });
-                setupConnectionEvents();
+            // MANEJO DE ERRORES INTELIGENTE (RETRY LOGIC)
+            peer.on('error', (err) => {
+                console.error("Peer Error:", err.type);
+                if (err.type === 'peer-unavailable') {
+                    if (connectionRetries < MAX_RETRIES) {
+                        connectionRetries++;
+                        updateStatus('connecting');
+                        ui.statusText.innerText = `Reintentando (${connectionRetries}/${MAX_RETRIES})...`;
+                        
+                        setTimeout(() => {
+                            if (conn) conn.close();
+                            console.log("Reintentando conexión a:", APP_PREFIX + code);
+                            conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
+                            setupConnectionEvents();
+                        }, 2000);
+                    } else {
+                        updateStatus('error');
+                        alert("No se encuentra el dispositivo anfitrión. Asegúrate de que el código es correcto.");
+                        resetApp();
+                    }
+                } else {
+                    alert("Error crítico: " + err.type);
+                    resetApp();
+                }
             });
             
-            peer.on('error', (err) => {
-                alert("Error conectando: " + err.type);
-                location.reload();
+            peer.on('open', () => {
+                // Primer intento
+                conn = peer.connect(APP_PREFIX + code, { reliable: true, serialization: 'binary' });
+                setupConnectionEvents();
             });
         }
 
@@ -476,13 +492,10 @@
             peer.on('open', (id) => updateStatus('waiting'));
             
             peer.on('connection', (connection) => {
-                // FIX CRÍTICO: Si ya hay una conexión, la cerramos para aceptar la nueva.
-                // Esto soluciona problemas cuando el móvil se desconecta y reconecta.
                 if(conn) { 
                     console.log("Cerrando conexión antigua para aceptar nueva...");
                     conn.close(); 
                 }
-                
                 conn = connection;
                 setupConnectionEvents();
             });
@@ -490,21 +503,22 @@
             peer.on('error', (err) => {
                 if(err.type === 'unavailable-id') { 
                     peer.destroy(); 
-                    initHostFlow(); // Retry ID generation
+                    initHostFlow(); 
+                } else {
+                    console.error(err);
                 }
             });
         }
 
         function setupConnectionEvents() {
+            if (!conn) return;
+            
             conn.on('open', () => {
-                clearTimeout(connectTimeout); // Limpiar timeout si conecta
+                clearTimeout(connectTimeout);
                 updateStatus('connected');
                 sounds.success.play().catch(()=>{});
-                
-                // Exchange Nicknames
                 conn.send({ type: 'sys-info', nickname: myNickname });
                 startPing();
-
                 if (fileQueue.length > 0) processQueue();
             });
 
@@ -514,7 +528,12 @@
                 updateStatus('disconnected');
                 stopPing();
                 alert("Peer desconectado.");
-                location.reload();
+                resetApp();
+            });
+            
+            // Error en la conexión de datos específica
+            conn.on('error', (err) => {
+                console.error("Conn Error:", err);
             });
         }
 
@@ -540,16 +559,13 @@
             }
         }
 
-        function handlePing() {
-            conn.send({ type: 'pong' });
-        }
+        function handlePing() { conn.send({ type: 'pong' }); }
 
         function handlePong() {
             const latency = Date.now() - pingStart;
             ui.pingText.innerText = latency + 'ms';
             ui.pingText.classList.remove('hidden');
             
-            // Logic to guess LAN
             if (latency < 10) {
                 ui.pingIndicator.classList.remove('hidden');
                 ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#0f172a] shadow-[0_0_8px_rgba(16,185,129,0.8)]";
@@ -565,7 +581,6 @@
         // --- FILE TRANSFER ---
 
         function setupDragAndDrop() {
-            // Already set in HTML attributes, adding listeners
             ui.dropArea.addEventListener('click', () => ui.fileInput.click());
             ui.dropArea.addEventListener('dragover', (e) => { e.preventDefault(); ui.dropArea.classList.add('drag-active'); });
             ui.dropArea.addEventListener('dragleave', () => ui.dropArea.classList.remove('drag-active'));
@@ -579,9 +594,7 @@
         setupDragAndDrop();
 
         function handlePaste(e) {
-            // Check if user is typing in chat input
             if (document.activeElement === ui.chatInput) return;
-
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
             const files = [];
             for (let item of items) {
@@ -612,7 +625,6 @@
             
             try {
                 await sendFile(file);
-                // History log sender
                 addHistoryItem(file, 'sent');
                 setTimeout(processQueue, 200);
             } catch (err) {
@@ -664,7 +676,7 @@
                         conn.send(e.target.result);
                         offset += e.target.result.byteLength;
                         updateProgress(offset, file.size, startTime);
-                        setTimeout(readSlice, 0); // Unblock UI
+                        setTimeout(readSlice, 0); 
                     };
                     reader.readAsArrayBuffer(slice);
                 };
@@ -675,19 +687,17 @@
         // --- RECEIVER LOGIC ---
         let incomingInfo = null;
         let receivedBytes = 0;
-        let receiveBuffer = []; // For RAM fallback
-        let streamWriter = null; // StreamSaver writer
+        let receiveBuffer = []; 
+        let streamWriter = null; 
         let receiveStart = 0;
 
         async function handleData(data) {
-            // System Messages
             if (data.type === 'ping') return handlePing();
             if (data.type === 'pong') return handlePong();
             if (data.type === 'sys-info') return handleSysInfo(data);
             if (data.type === 'chat') return receiveChat(data);
             if (data.type === 'abort') return handleAbort();
 
-            // File Messages
             if (data.type === 'metadata') {
                 incomingInfo = data;
                 receivedBytes = 0;
@@ -695,9 +705,8 @@
                 receiveStart = Date.now();
                 requestWakeLock();
                 
-                // Switch to files tab if needed
                 if (!document.getElementById('tab-files').classList.contains('active')) {
-                     ui.queueBadge.classList.remove('hidden'); // Use badge as notification
+                     ui.queueBadge.classList.remove('hidden'); 
                      ui.queueBadge.innerText = "!";
                 }
 
@@ -705,12 +714,11 @@
                 ui.transferUI.classList.remove('hidden');
                 ui.fileName.innerText = data.name;
                 
-                // 1. Try Native File System (Chrome/Edge Desktop)
                 if (window.showSaveFilePicker) {
                     try {
                         const handle = await window.showSaveFilePicker({ suggestedName: data.name });
                         const writable = await handle.createWritable();
-                        streamWriter = writable; // Native writable stream
+                        streamWriter = writable; 
                         ui.storageMode.innerText = "Native Disk Write";
                         return;
                     } catch (err) {
@@ -718,7 +726,6 @@
                     }
                 }
                 
-                // 2. Try StreamSaver
                 try {
                     const fileStream = streamSaver.createWriteStream(data.name, { size: data.size });
                     streamWriter = fileStream.getWriter();
@@ -735,7 +742,6 @@
                 return;
             }
 
-            // Chunks
             receivedBytes += data.byteLength;
             updateProgress(receivedBytes, incomingInfo.size, receiveStart);
             
@@ -755,17 +761,12 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url; a.download = incomingInfo.name; a.click();
-                
-                // Log with Blob for preview
                 addHistoryItem(incomingInfo, 'received', blob);
                 receiveBuffer = [];
-                
                 finishTransferUI();
-                return; // Early return as history is handled
+                return;
             }
 
-            // If StreamSaver, we don't have the blob for preview easily without rereading
-            // We'll log standard history
             addHistoryItem(incomingInfo, 'received');
             finishTransferUI();
         }
@@ -813,7 +814,6 @@
             const div = document.createElement('div');
             div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
             
-            // Check if link
             let content = msg.text;
             const linkRegex = /(https?:\/\/[^\s]+)/g;
             if (linkRegex.test(content)) {
@@ -840,7 +840,8 @@
                 'connected': { color: 'bg-emerald-500', text: 'Conectado', textCol: 'text-emerald-400' },
                 'disconnected': { color: 'bg-red-500', text: 'Desconectado', textCol: 'text-red-400' },
                 'waiting': { color: 'bg-yellow-500', text: 'Esperando...', textCol: 'text-yellow-400' },
-                'connecting': { color: 'bg-blue-500', text: 'Conectando...', textCol: 'text-blue-400' }
+                'connecting': { color: 'bg-blue-500', text: 'Conectando...', textCol: 'text-blue-400' },
+                'error': { color: 'bg-red-500', text: 'Error', textCol: 'text-red-400' }
             }[st] || { color: 'bg-gray-500', text: st };
 
             ui.statusDot.className = `w-2 h-2 rounded-full ${config.color} ${st === 'connected' ? 'pulse-dot' : ''}`;
@@ -866,12 +867,9 @@
             
             let iconHtml = `<i data-lucide="${isImg?'image':'file'}" class="w-4 h-4 text-white"></i>`;
             
-            // Image Preview
             if (isImg && blob) {
                 const url = URL.createObjectURL(blob);
                 iconHtml = `<img src="${url}" class="w-8 h-8 object-cover rounded-md border border-white/20" onclick="window.open('${url}')">`;
-            } else if (isImg && direction === 'sent') {
-                 // Try to read local file for preview? Too heavy for history list maybe.
             }
 
             const item = document.createElement('div');
