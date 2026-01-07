@@ -421,6 +421,12 @@
             setupPeerEvents();
         }
 
+        function showJoinUI() {
+            ui.landingView.classList.add('hidden');
+            ui.joinView.classList.remove('hidden');
+            ui.codeInput.focus();
+        }
+
         function initGuestFlow(code) {
             ui.landingView.classList.add('hidden');
             ui.joinView.classList.add('hidden');
@@ -672,7 +678,20 @@
                 ui.transferUI.classList.remove('hidden');
                 ui.fileName.innerText = data.name;
                 
-                // Try StreamSaver
+                // 1. Try Native File System (Chrome/Edge Desktop)
+                if (window.showSaveFilePicker) {
+                    try {
+                        const handle = await window.showSaveFilePicker({ suggestedName: data.name });
+                        const writable = await handle.createWritable();
+                        streamWriter = writable; // Native writable stream
+                        ui.storageMode.innerText = "Native Disk Write";
+                        return;
+                    } catch (err) {
+                        console.log("Native FS cancelled/failed, falling back to StreamSaver");
+                    }
+                }
+                
+                // 2. Try StreamSaver
                 try {
                     const fileStream = streamSaver.createWriteStream(data.name, { size: data.size });
                     streamWriter = fileStream.getWriter();
