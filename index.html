@@ -13,6 +13,8 @@
     <!-- StreamSaver.js & Polyfill -->
     <script src="https://cdn.jsdelivr.net/npm/web-streams-polyfill@3/dist/polyfill.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.min.js"></script>
+    <!-- QRCode.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     
     <style>
         /* Glassmorphism & Animaciones */
@@ -47,6 +49,7 @@
         .drop-zone.drag-active {
             background-color: rgba(99, 102, 241, 0.1);
             transform: scale(1.02);
+            border-color: #6366f1;
         }
 
         /* Animación de pulso para estado de conexión */
@@ -70,17 +73,31 @@
             box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
         }
 
-        /* Input Code Styles */
-        .code-digit {
-            font-family: 'Courier New', monospace;
-            letter-spacing: 0.2em;
+        .history-item {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* QR Code Container Styling */
+        #qrcode img {
+            margin: 0 auto;
+            border-radius: 8px;
+            border: 4px solid white;
         }
     </style>
 </head>
 <body class="flex items-center justify-center p-4">
 
+    <!-- Sounds -->
+    <audio id="snd-success" src="https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3" preload="auto"></audio>
+    <audio id="snd-notify" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
+
     <!-- Main Container -->
-    <div class="w-full max-w-2xl glass-panel rounded-3xl p-8 relative overflow-hidden transition-all duration-500" style="min-height: 500px">
+    <div class="w-full max-w-2xl glass-panel rounded-3xl p-8 relative overflow-hidden transition-all duration-500 flex flex-col" style="min-height: 600px">
         
         <!-- Header -->
         <header class="flex justify-between items-center mb-8">
@@ -101,11 +118,11 @@
             </div>
         </header>
 
-        <!-- LANDING VIEW (Nuevo menú principal) -->
-        <div id="landing-view" class="flex flex-col gap-6 animate-in fade-in zoom-in duration-500">
+        <!-- LANDING VIEW (Menú principal) -->
+        <div id="landing-view" class="flex flex-col gap-6 animate-in fade-in zoom-in duration-500 flex-grow">
             <div class="text-center mb-4">
                 <h2 class="text-3xl font-bold text-white mb-2">Transferencia Directa P2P</h2>
-                <p class="text-gray-400">Seguro, ilimitado y sin servidores intermedios.</p>
+                <p class="text-gray-400">Seguro, ilimitado, multi-archivo y sin servidores.</p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -115,7 +132,7 @@
                         <i data-lucide="upload-cloud" class="w-6 h-6 text-indigo-400"></i>
                     </div>
                     <h3 class="text-xl font-semibold text-white mb-1">Enviar Archivos</h3>
-                    <p class="text-sm text-gray-400">Crear una sala y generar un código.</p>
+                    <p class="text-sm text-gray-400">Crear sala, código y QR.</p>
                 </button>
 
                 <!-- Opción RECIBIR -->
@@ -124,13 +141,13 @@
                         <i data-lucide="download" class="w-6 h-6 text-emerald-400"></i>
                     </div>
                     <h3 class="text-xl font-semibold text-white mb-1">Recibir Archivos</h3>
-                    <p class="text-sm text-gray-400">Tengo un código o enlace.</p>
+                    <p class="text-sm text-gray-400">Usar código o escanear QR.</p>
                 </button>
             </div>
         </div>
 
         <!-- JOIN FORM VIEW (Manual Code Entry) -->
-        <div id="join-view" class="hidden flex flex-col items-center justify-center h-full animate-in fade-in slide-in-from-bottom-4">
+        <div id="join-view" class="hidden flex flex-col items-center justify-center flex-grow animate-in fade-in slide-in-from-bottom-4">
             <h2 class="text-2xl font-bold text-white mb-6">Introduce el Código</h2>
             <div class="relative w-full max-w-xs mb-6">
                 <input type="text" id="code-input" maxlength="6" placeholder="000000" 
@@ -143,26 +160,35 @@
         </div>
 
         <!-- SENDER VIEW: Code Display & Drop Zone -->
-        <div id="sender-view" class="hidden transition-all duration-500">
-            <!-- Room Code Display -->
-            <div class="text-center mb-8">
+        <div id="sender-view" class="hidden transition-all duration-500 flex-grow flex flex-col">
+            <!-- Room Code Display & QR -->
+            <div class="flex flex-col items-center mb-8 relative">
                 <p class="text-sm text-gray-400 mb-2 uppercase tracking-wider font-semibold">Tu Código de Sala</p>
-                <div class="flex items-center justify-center gap-3">
-                    <div class="bg-black/30 border border-indigo-500/30 rounded-xl px-6 py-3 relative group cursor-pointer" onclick="copyCode()">
+                <div class="flex items-center gap-2">
+                    <div class="bg-black/30 border border-indigo-500/30 rounded-xl px-6 py-3 relative group cursor-pointer" onclick="copyCode()" title="Copiar código">
                         <span id="room-code-display" class="text-4xl font-mono font-bold text-white tracking-widest">...</span>
                         <div class="absolute -right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <i data-lucide="copy" class="w-5 h-5 text-gray-400"></i>
                         </div>
                     </div>
+                    <button onclick="toggleQR()" class="p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-colors text-white border border-white/10" title="Mostrar QR">
+                        <i data-lucide="qr-code" class="w-6 h-6"></i>
+                    </button>
                 </div>
-                <p class="text-xs text-gray-500 mt-2">Comparte este código con el receptor</p>
+                
+                <!-- QR Modal (Inline absolute) -->
+                <div id="qr-container" class="hidden absolute top-full mt-4 bg-white p-4 rounded-xl shadow-2xl z-50 animate-in zoom-in duration-200">
+                    <div id="qrcode"></div>
+                    <p class="text-center text-black text-xs mt-2 font-mono">Escanear para unir</p>
+                </div>
             </div>
 
-            <div id="drop-area" class="drop-zone h-56 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5">
-                <input type="file" id="file-input" class="hidden">
-                <i data-lucide="upload-cloud" class="w-12 h-12 text-indigo-400 mb-3"></i>
-                <p class="text-lg font-medium text-white mb-1">Arrastra tu archivo aquí</p>
-                <p class="text-sm text-gray-400">o haz clic para explorar</p>
+            <div id="drop-area" class="drop-zone h-56 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 relative">
+                <input type="file" id="file-input" class="hidden" multiple> <!-- MULTIPLE ENABLED -->
+                <i data-lucide="layers" class="w-12 h-12 text-indigo-400 mb-3"></i>
+                <p class="text-lg font-medium text-white mb-1">Arrastra tus archivos aquí</p>
+                <p class="text-sm text-gray-400">Soporta múltiples archivos y pegado (Ctrl+V)</p>
+                <div id="queue-badge" class="hidden absolute top-4 right-4 bg-indigo-500 text-white text-xs px-2 py-1 rounded-full">0 en cola</div>
             </div>
             
             <!-- Link Sharing Toggle -->
@@ -182,35 +208,58 @@
         </div>
 
         <!-- RECEIVER VIEW: Download Prompt -->
-        <div id="receiver-view" class="hidden text-center py-10">
+        <div id="receiver-view" class="hidden text-center py-10 flex-grow">
             <div class="animate-pulse mb-6 flex justify-center">
                 <div class="w-20 h-20 rounded-full bg-indigo-500/20 flex items-center justify-center">
-                    <i data-lucide="download" class="w-10 h-10 text-indigo-400"></i>
+                    <i data-lucide="hard-drive-download" class="w-10 h-10 text-indigo-400"></i>
                 </div>
             </div>
-            <h2 class="text-xl font-semibold text-white mb-2">Conectado con el emisor</h2>
-            <p class="text-gray-400 mb-8 max-w-md mx-auto">Esperando archivo...</p>
+            <h2 class="text-xl font-semibold text-white mb-2">Conectado y Esperando</h2>
+            <p class="text-gray-400 mb-8 max-w-md mx-auto">El emisor puede añadir archivos a la cola en cualquier momento.</p>
         </div>
 
-        <!-- PROGRESS OVERLAY (Shared) -->
-        <div id="transfer-ui" class="hidden mt-6">
-            <div class="flex justify-between items-end mb-2">
-                <div>
-                    <h3 id="file-name" class="font-medium text-white truncate max-w-[200px]">archivo.zip</h3>
-                    <p id="transfer-speed" class="text-xs text-indigo-300 font-mono">0 MB/s</p>
+        <!-- ACTIVE TRANSFER UI (Shared) -->
+        <div id="transfer-ui" class="hidden mt-6 bg-black/20 p-4 rounded-2xl border border-white/5">
+            <div class="flex justify-between items-center mb-3">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="bg-indigo-500/20 p-2 rounded-lg">
+                        <i data-lucide="file" class="w-5 h-5 text-indigo-300"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <h3 id="file-name" class="font-medium text-white truncate text-sm">archivo.zip</h3>
+                        <p id="transfer-speed" class="text-xs text-indigo-300 font-mono">Iniciando...</p>
+                    </div>
                 </div>
-                <span id="percent-text" class="text-2xl font-bold text-white">0%</span>
+                <div class="text-right">
+                    <span id="percent-text" class="text-xl font-bold text-white block">0%</span>
+                    <button onclick="cancelTransfer()" class="text-xs text-red-400 hover:text-red-300 underline mt-1">Cancelar</button>
+                </div>
             </div>
-            <div class="w-full bg-gray-700/50 rounded-full h-4 overflow-hidden backdrop-blur-sm">
+            
+            <div class="w-full bg-gray-700/50 rounded-full h-2 overflow-hidden backdrop-blur-sm mb-2">
                 <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
             </div>
-            <p id="eta-text" class="text-right text-xs text-gray-500 mt-2">Calculando...</p>
-            <p id="storage-mode" class="text-right text-[10px] text-gray-600 font-mono mt-1">Mode: Checking...</p>
+            
+            <div class="flex justify-between text-[10px] text-gray-500 font-mono uppercase">
+                <span id="storage-mode">Mode: Checking...</span>
+                <span id="eta-text">ETA: --:--</span>
+            </div>
+        </div>
+
+        <!-- HISTORY LOG -->
+        <div id="history-container" class="mt-8 border-t border-white/5 pt-6 hidden">
+            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <i data-lucide="history" class="w-3 h-3"></i> Historial de Sesión
+            </h4>
+            <div id="history-list" class="space-y-3 max-h-40 overflow-y-auto no-scrollbar pr-2">
+                <!-- Items injected here -->
+            </div>
         </div>
 
         <!-- Footer -->
-        <div class="mt-8 pt-6 border-t border-white/5 text-center">
+        <div class="mt-auto pt-6 border-t border-white/5 text-center flex justify-between items-center">
             <p class="text-xs text-gray-600 font-mono">P2P ENCRYPTED • SERVERLESS</p>
+            <div class="text-xs text-gray-600" id="wake-lock-status">Wait Mode</div>
         </div>
 
     </div>
@@ -227,16 +276,22 @@
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ]
             },
-            debug: 1 // Reduced debug noise
+            debug: 1
         };
 
         // GLOBAL STATE
         let peer = null;
         let conn = null;
         let isHost = false;
-        const APP_PREFIX = 'siurtec-share-v1-'; // Prefijo para evitar colisiones globales
+        const APP_PREFIX = 'siurtec-share-v1-';
         
-        // Elementos UI
+        // Transfer Queue State
+        let fileQueue = [];
+        let isTransferring = false;
+        let currentFileTransfer = null; // To support cancellation
+        let wakeLockSentinel = null;
+
+        // UI References
         const ui = {
             landingView: document.getElementById('landing-view'),
             joinView: document.getElementById('join-view'),
@@ -257,30 +312,46 @@
             speedText: document.getElementById('transfer-speed'),
             fileName: document.getElementById('file-name'),
             etaText: document.getElementById('eta-text'),
-            storageMode: document.getElementById('storage-mode')
+            storageMode: document.getElementById('storage-mode'),
+            queueBadge: document.getElementById('queue-badge'),
+            historyContainer: document.getElementById('history-container'),
+            historyList: document.getElementById('history-list'),
+            qrContainer: document.getElementById('qr-container'),
+            wakeLockStatus: document.getElementById('wake-lock-status')
         };
 
-        // Constantes Transferencia
+        // Sounds
+        const sounds = {
+            success: document.getElementById('snd-success'),
+            notify: document.getElementById('snd-notify')
+        };
+
+        // Constantes
         const CHUNK_SIZE = 16 * 1024; 
         const BUFFER_THRESHOLD = 64 * 1024; 
 
-        // --- CORE NAVIGATION LOGIC ---
+        // --- CORE LOGIC ---
 
         function init() {
-            // Verificar si venimos con un código en la URL (Link directo)
+            // Check for Hash Code
             const hash = window.location.hash.substring(1);
             if (hash) {
-                // Si el hash tiene prefijo completo o es solo el código corto
-                const code = hash.replace(APP_PREFIX, ''); // Limpiar si fuera necesario
+                const code = hash.replace(APP_PREFIX, '');
                 initGuestFlow(code);
             } else {
-                // Mostrar Landing
                 ui.landingView.classList.remove('hidden');
             }
+
+            // Notification Permission
+            if ("Notification" in window && Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+
+            // Paste Event Listener
+            document.addEventListener('paste', handlePaste);
         }
 
         function resetApp() {
-            // Recargar página limpia (simple reset)
             window.location.href = window.location.pathname;
         }
 
@@ -314,41 +385,39 @@
 
         // --- HOST FLOW (SENDER) ---
 
-        function generateRoomCode() {
-            // Generar código numérico de 6 dígitos aleatorio
-            return Math.floor(100000 + Math.random() * 900000).toString();
-        }
-
         function initHostFlow() {
             ui.landingView.classList.add('hidden');
             ui.senderView.classList.remove('hidden');
             showStatus();
             isHost = true;
 
-            const shortCode = generateRoomCode();
+            const shortCode = Math.floor(100000 + Math.random() * 900000).toString();
             const fullPeerId = APP_PREFIX + shortCode;
 
-            // Mostrar código
             ui.roomCodeDisplay.innerText = shortCode;
             
-            // Generar Link por si acaso
             const link = `${window.location.origin}${window.location.pathname}#${shortCode}`;
             ui.shareLink.value = link;
 
-            // Inicializar Peer con ID manual
+            // Generate QR
+            new QRCode(document.getElementById("qrcode"), {
+                text: link,
+                width: 128,
+                height: 128,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
             peer = new Peer(fullPeerId, peerConfig);
 
             peer.on('open', (id) => {
                 updateStatus('waiting');
                 ui.statusText.innerText = "Esperando par...";
-                console.log('Mi ID es:', id);
             });
 
             peer.on('error', (err) => {
-                console.error(err);
                 if (err.type === 'unavailable-id') {
-                    // Si tenemos la mala suerte de colisión, reintentamos recursivamente
-                    alert("Código ocupado, regenerando...");
                     peer.destroy();
                     initHostFlow(); 
                 } else {
@@ -359,19 +428,24 @@
             peer.on('connection', (connection) => {
                 conn = connection;
                 setupConnectionEvents();
+                // If files were dropped before connection, they are in queue. Start automatically?
+                // Better wait for user or just process queue if not empty.
+                if (fileQueue.length > 0) processQueue();
             });
 
             setupDragAndDrop();
         }
 
+        function toggleQR() {
+            ui.qrContainer.classList.toggle('hidden');
+        }
+
         function toggleLinkShare() {
-            const el = document.getElementById('link-area');
-            el.classList.toggle('hidden');
+            document.getElementById('link-area').classList.toggle('hidden');
         }
 
         function copyCode() {
-            const code = ui.roomCodeDisplay.innerText;
-            navigator.clipboard.writeText(code).then(() => {
+            navigator.clipboard.writeText(ui.roomCodeDisplay.innerText).then(() => {
                 const original = ui.roomCodeDisplay.innerText;
                 ui.roomCodeDisplay.innerText = "COPIADO";
                 ui.roomCodeDisplay.classList.add("text-emerald-400");
@@ -392,7 +466,7 @@
 
         function joinWithManualCode() {
             const code = ui.codeInput.value.trim();
-            if (code.length < 5) { // Permitir 5 o 6
+            if (code.length < 5) { 
                 alert("Código inválido");
                 return;
             }
@@ -407,8 +481,6 @@
             isHost = false;
 
             const targetId = APP_PREFIX + code;
-
-            // Peer invitado no necesita ID específico, puede ser random
             peer = new Peer(null, peerConfig);
 
             peer.on('open', () => {
@@ -418,25 +490,25 @@
             });
 
             peer.on('error', (err) => {
-                console.error("Error Peer:", err);
                 alert("No se pudo conectar. Verifica el código.");
                 resetApp();
             });
         }
 
-        // --- CONNECTION HANDLERS (COMUNES) ---
+        // --- CONNECTION HANDLERS ---
 
         function setupConnectionEvents() {
             conn.on('open', () => {
                 updateStatus('connected');
-                // Si soy el receiver, oculto la espera genérica
+                sounds.success.play().catch(e => {}); // Play connect sound
+                
                 if (!isHost) {
                     ui.receiverView.querySelector('h2').innerText = "Conectado";
-                    ui.receiverView.querySelector('p').innerText = "Esperando a que el anfitrión envíe el archivo...";
+                    ui.receiverView.querySelector('p').innerText = "Esperando archivos...";
                 } else {
-                    // Si soy Host, aviso visualmente
                     ui.dropArea.classList.add('border-emerald-500');
-                    ui.dropArea.querySelector('p').innerText = "¡Usuario conectado! Arrastra archivo";
+                    ui.dropArea.querySelector('p').innerText = "Conectado. Arrastra archivos.";
+                    if(fileQueue.length > 0) processQueue();
                 }
             });
 
@@ -445,23 +517,33 @@
             conn.on('close', () => {
                 updateStatus('disconnected');
                 alert("Conexión finalizada.");
-                resetApp(); // Volver al inicio para nueva transferencia
-            });
-            
-            conn.on('error', (err) => {
-                console.error("Error conexión:", err);
+                resetApp(); 
             });
         }
 
-        // --- FILE TRANSFER LOGIC (Sin cambios mayores, solo UI references) ---
+        // --- FILE QUEUE & TRANSFER LOGIC ---
 
-        let incomingFileInfo = null;
-        let bytesReceived = 0;
-        let receiveBuffer = []; 
-        let fileStreamWriter = null;
-        let startTime = 0;
+        // Wake Lock
+        async function requestWakeLock() {
+            try {
+                wakeLockSentinel = await navigator.wakeLock.request('screen');
+                ui.wakeLockStatus.innerText = "⚡ High Performance Mode";
+                ui.wakeLockStatus.classList.add('text-emerald-400');
+            } catch (err) {
+                console.log('Wake Lock failed', err);
+            }
+        }
 
-        // [SENDER] Setup Drag Drop
+        function releaseWakeLock() {
+            if (wakeLockSentinel) {
+                wakeLockSentinel.release();
+                wakeLockSentinel = null;
+                ui.wakeLockStatus.innerText = "Wait Mode";
+                ui.wakeLockStatus.classList.remove('text-emerald-400');
+            }
+        }
+
+        // [SENDER] Input Handling
         function setupDragAndDrop() {
             ui.dropArea.addEventListener('click', () => ui.fileInput.click());
             
@@ -475,110 +557,233 @@
             ui.dropArea.addEventListener('drop', (e) => {
                 e.preventDefault();
                 ui.dropArea.classList.remove('drag-active');
-                handleFileSelection(e.dataTransfer.files[0]);
+                handleFiles(e.dataTransfer.files);
             });
             ui.fileInput.addEventListener('change', (e) => {
-                handleFileSelection(e.target.files[0]);
+                handleFiles(e.target.files);
             });
         }
 
-        function handleFileSelection(file) {
-            if (!file) return;
+        function handlePaste(e) {
+            // Only handle paste if we are in Sender View
+            if (ui.senderView.classList.contains('hidden')) return;
+
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            const files = [];
+            for (let item of items) {
+                if (item.kind === 'file') {
+                    files.push(item.getAsFile());
+                }
+            }
+            if (files.length > 0) {
+                handleFiles(files);
+            }
+        }
+
+        function handleFiles(fileList) {
+            if (!fileList || fileList.length === 0) return;
+            
+            // Add to queue
+            for (let i = 0; i < fileList.length; i++) {
+                fileQueue.push(fileList[i]);
+            }
+
+            updateQueueUI();
+
             if (!conn || !conn.open) {
-                alert("Espera a que alguien se conecte con tu código.");
+                // If not connected, just show queue
                 return;
             }
-            startTransfer(file);
+            
+            // Auto start if idle
+            if (!isTransferring) {
+                processQueue();
+            }
         }
 
-        // [SENDER] Start Transfer
-        async function startTransfer(file) {
-            ui.senderView.classList.add('hidden');
-            ui.transferUI.classList.remove('hidden');
-            ui.fileName.innerText = file.name;
-            ui.storageMode.innerText = "Mode: Sending via WebRTC";
-            startTime = Date.now();
+        function updateQueueUI() {
+            if (fileQueue.length > 0) {
+                ui.queueBadge.innerText = `${fileQueue.length} en cola`;
+                ui.queueBadge.classList.remove('hidden');
+                ui.queueBadge.classList.add('animate-bounce');
+            } else {
+                ui.queueBadge.classList.add('hidden');
+                ui.queueBadge.classList.remove('animate-bounce');
+            }
+        }
 
-            conn.send({
-                type: 'metadata',
-                name: file.name,
-                size: file.size,
-                mime: file.type
-            });
+        // [SENDER] Queue Processor
+        async function processQueue() {
+            if (fileQueue.length === 0) {
+                isTransferring = false;
+                releaseWakeLock();
+                return;
+            }
 
-            let offset = 0;
-            const readSlice = () => {
-                if (offset >= file.size) {
-                    conn.send({ type: 'end' });
-                    return; 
-                }
-                if (conn.dataChannel.bufferedAmount > BUFFER_THRESHOLD) {
-                    const waitHandler = () => {
-                        conn.dataChannel.removeEventListener('bufferedamountlow', waitHandler);
-                        readSlice();
-                    };
-                    conn.dataChannel.onbufferedamountlow = waitHandler;
-                    return; 
-                }
-                const slice = file.slice(offset, offset + CHUNK_SIZE);
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    conn.send(e.target.result); 
-                    offset += e.target.result.byteLength;
-                    updateProgress(offset, file.size);
-                    setTimeout(readSlice, 0); 
+            isTransferring = true;
+            requestWakeLock();
+            const file = fileQueue.shift(); // Get first
+            updateQueueUI();
+
+            try {
+                await startTransfer(file);
+                // Success logic
+                addHistoryItem(file, 'sent');
+                setTimeout(processQueue, 500); // Small delay before next
+            } catch (err) {
+                console.error("Transfer failed/cancelled", err);
+                isTransferring = false; // Stop queue on error? or continue?
+                // For cancellation, we probably want to continue queue or stop. 
+                // Let's stop to be safe.
+            }
+        }
+
+        function cancelTransfer() {
+            if (conn) {
+                // Send a cancel signal to receiver?
+                // Simplest is just closing the data channel logic on sender side
+                // and sending an 'abort' message
+                conn.send({ type: 'abort' });
+                // We fake an error to stop the local promise
+                // This will be caught in processQueue
+            }
+            // Force reset UI handled in catch/finally logic normally, 
+            // but here we need to trigger it manually
+            isTransferring = false;
+            ui.transferUI.classList.add('hidden');
+            ui.senderView.classList.remove('hidden');
+            alert("Transferencia cancelada.");
+        }
+
+        // [SENDER] Single File Transfer
+        function startTransfer(file) {
+            return new Promise((resolve, reject) => {
+                ui.senderView.classList.add('hidden');
+                ui.transferUI.classList.remove('hidden');
+                ui.fileName.innerText = file.name;
+                ui.storageMode.innerText = "Sending...";
+                
+                let offset = 0;
+                const startTime = Date.now();
+                let isCancelled = false;
+
+                // Listen for abort from user
+                // We override the global cancel function for this specific scope
+                const oldCancel = window.cancelTransfer;
+                window.cancelTransfer = () => {
+                    isCancelled = true;
+                    conn.send({ type: 'abort' });
+                    reject(new Error("Cancelled by user"));
+                    ui.transferUI.classList.add('hidden');
+                    if(isHost) ui.senderView.classList.remove('hidden');
+                    window.cancelTransfer = oldCancel; // Restore
                 };
-                reader.readAsArrayBuffer(slice);
-            };
-            readSlice();
+
+                conn.send({
+                    type: 'metadata',
+                    name: file.name,
+                    size: file.size,
+                    mime: file.type
+                });
+
+                const readSlice = () => {
+                    if (isCancelled) return;
+                    
+                    if (offset >= file.size) {
+                        conn.send({ type: 'end' });
+                        // Transfer done visually
+                        ui.transferUI.classList.add('hidden');
+                        if(isHost) ui.senderView.classList.remove('hidden');
+                        
+                        resolve(); // Queue continues
+                        return; 
+                    }
+
+                    if (conn.dataChannel.bufferedAmount > BUFFER_THRESHOLD) {
+                        const waitHandler = () => {
+                            conn.dataChannel.removeEventListener('bufferedamountlow', waitHandler);
+                            readSlice();
+                        };
+                        conn.dataChannel.onbufferedamountlow = waitHandler;
+                        return; 
+                    }
+
+                    const slice = file.slice(offset, offset + CHUNK_SIZE);
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        if (isCancelled) return;
+                        conn.send(e.target.result); 
+                        offset += e.target.result.byteLength;
+                        updateProgress(offset, file.size, startTime);
+                        setTimeout(readSlice, 0); 
+                    };
+                    reader.readAsArrayBuffer(slice);
+                };
+
+                readSlice();
+            });
         }
 
-        // [RECEIVER] Handle Data
+        // [RECEIVER] Logic
+        let incomingFileInfo = null;
+        let bytesReceived = 0;
+        let receiveBuffer = []; 
+        let fileStreamWriter = null;
+        let receiveStartTime = 0;
+
         async function handleData(data) {
+            // META
             if (data.type === 'metadata') {
                 incomingFileInfo = data;
                 bytesReceived = 0;
                 receiveBuffer = [];
-                startTime = Date.now();
+                receiveStartTime = Date.now();
                 fileStreamWriter = null;
+                requestWakeLock();
                 
                 ui.receiverView.classList.add('hidden');
                 ui.transferUI.classList.remove('hidden');
                 ui.fileName.innerText = data.name;
 
-                // Priority 1: Native FS
-                if (window.showSaveFilePicker) {
-                    try {
-                        const handle = await window.showSaveFilePicker({ suggestedName: data.name });
-                        const writable = await handle.createWritable();
-                        fileStreamWriter = writable;
-                        ui.storageMode.innerText = "Mode: Direct Disk Write (Native)";
-                        return;
-                    } catch (err) { console.warn("FS Cancelled"); }
-                }
-
-                // Priority 2: StreamSaver
+                // Priority 1: Native FS (Only if supported and user interaction allowed... 
+                // For queue, native FS prompts for EVERY file, which is annoying.
+                // We will try StreamSaver first for queues or just StreamSaver generally for better UX in batches)
+                
+                // Let's prefer StreamSaver for "zero-click" feeling in queues if possible
+                // Priority: StreamSaver -> Native FS -> RAM
+                
                 try {
                     const fileStream = streamSaver.createWriteStream(data.name, { size: data.size });
                     fileStreamWriter = fileStream.getWriter();
-                    ui.storageMode.innerText = "Mode: StreamSaver.js";
+                    ui.storageMode.innerText = "Mode: StreamSaver";
                     window.onbeforeunload = () => { if (fileStreamWriter) fileStreamWriter.abort(); }
                     return;
                 } catch (err) { console.error("StreamSaver error", err); }
-
-                // Priority 3: RAM
+                
+                // Fallback RAM
                 ui.storageMode.innerText = "Mode: RAM Buffer";
                 return;
             }
 
-            if (data.type === 'end') {
-                finalizeTransfer();
+            // ABORT
+            if (data.type === 'abort') {
+                if (fileStreamWriter) await fileStreamWriter.abort();
+                ui.transferUI.classList.add('hidden');
+                if(!isHost) ui.receiverView.classList.remove('hidden');
+                alert("El emisor canceló la transferencia.");
+                releaseWakeLock();
                 return;
             }
 
-            // Chunk
+            // END
+            if (data.type === 'end') {
+                await finalizeReceiver();
+                return;
+            }
+
+            // CHUNK
             bytesReceived += data.byteLength;
-            updateProgress(bytesReceived, incomingFileInfo.size);
+            updateProgress(bytesReceived, incomingFileInfo.size, receiveStartTime);
 
             if (fileStreamWriter) {
                 await fileStreamWriter.write(new Uint8Array(data));
@@ -587,17 +792,14 @@
             }
         }
 
-        async function finalizeTransfer() {
-            ui.percentText.innerText = "100%";
-            ui.progressBar.style.width = "100%";
-            ui.speedText.innerText = "Completado";
+        async function finalizeReceiver() {
             window.onbeforeunload = null;
 
             if (fileStreamWriter) {
                 await fileStreamWriter.close();
                 fileStreamWriter = null;
-                // No alert, just UI update
             } else {
+                // RAM Download
                 const blob = new Blob(receiveBuffer, { type: incomingFileInfo.mime });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -606,30 +808,68 @@
                 a.click();
                 setTimeout(() => { URL.revokeObjectURL(url); receiveBuffer = []; }, 1000);
             }
-            ui.statusText.innerText = "Finalizado";
-            
-            // Botón para volver a inicio tras finalizar
-            setTimeout(() => {
-                if(confirm("Transferencia completada. ¿Volver al inicio?")) {
-                    resetApp();
-                }
-            }, 500);
+
+            // UI Feedback
+            sounds.notify.play().catch(e => {});
+            if (Notification.permission === "granted" && document.hidden) {
+                new Notification("Transferencia Completada", {
+                    body: `${incomingFileInfo.name} se ha guardado.`
+                });
+            }
+
+            // Log History
+            addHistoryItem({ name: incomingFileInfo.name, size: incomingFileInfo.size, type: incomingFileInfo.mime }, 'received');
+
+            // Reset View for next file
+            ui.transferUI.classList.add('hidden');
+            ui.receiverView.classList.remove('hidden');
+            ui.receiverView.querySelector('p').innerText = "Esperando siguiente archivo...";
+            releaseWakeLock();
         }
 
-        // --- UTILS ---
+        // --- UI UTILS ---
 
-        function updateProgress(loaded, total) {
+        function updateProgress(loaded, total, startTime) {
             const percent = ((loaded / total) * 100).toFixed(1);
             ui.progressBar.style.width = `${percent}%`;
             ui.percentText.innerText = `${Math.floor(percent)}%`;
+            
             const now = Date.now();
             const elapsed = (now - startTime) / 1000;
             const speed = loaded / elapsed; 
             ui.speedText.innerText = formatSpeed(speed);
+            
             if (speed > 0) {
                 const remaining = total - loaded;
                 ui.etaText.innerText = `ETA: ${formatTime(remaining / speed)}`;
             }
+        }
+
+        function addHistoryItem(file, direction) {
+            ui.historyContainer.classList.remove('hidden');
+            
+            const isImage = file.type && file.type.startsWith('image/');
+            const icon = isImage ? 'image' : 'file';
+            const colorClass = direction === 'sent' ? 'text-indigo-400' : 'text-emerald-400';
+            const arrowIcon = direction === 'sent' ? 'arrow-up-right' : 'arrow-down-left';
+
+            const item = document.createElement('div');
+            item.className = "flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 history-item";
+            item.innerHTML = `
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="p-2 rounded-lg bg-black/30 ${colorClass}">
+                        <i data-lucide="${icon}" class="w-4 h-4"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-gray-200 truncate max-w-[150px] md:max-w-[300px]">${file.name}</p>
+                        <p class="text-xs text-gray-500">${formatBytes(file.size)} • ${direction === 'sent' ? 'Enviado' : 'Recibido'}</p>
+                    </div>
+                </div>
+                <i data-lucide="${arrowIcon}" class="w-4 h-4 ${colorClass}"></i>
+            `;
+            
+            ui.historyList.prepend(item);
+            lucide.createIcons();
         }
 
         function formatBytes(bytes) {
@@ -650,7 +890,15 @@
 
         function copyLink() {
             const link = ui.shareLink.value;
-            navigator.clipboard.writeText(link).then(() => alert("Enlace copiado"));
+            navigator.clipboard.writeText(link).then(() => {
+                const btn = ui.shareLink.nextElementSibling;
+                const original = btn.innerHTML;
+                btn.innerHTML = '<i data-lucide="check" class="w-5 h-5"></i>';
+                setTimeout(() => {
+                    btn.innerHTML = original;
+                    lucide.createIcons();
+                }, 1000);
+            });
         }
 
         // START
