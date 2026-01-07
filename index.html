@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SiurtecShare | P2P Transfer</title>
+    <title>SiurtecShare | P2P Ultimate</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PeerJS -->
@@ -15,6 +15,8 @@
     <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.min.js"></script>
     <!-- QRCode.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Marked (Markdown support for chat) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
     <style>
         /* Glassmorphism & Animaciones */
@@ -26,7 +28,7 @@
         }
 
         body {
-            background: radial-gradient(circle at top left, #1e1b4b, #0f172a);
+            background: radial-gradient(circle at top left, #0f172a, #020617);
             min-height: 100vh;
             color: #e2e8f0;
             font-family: 'Inter', sans-serif;
@@ -52,42 +54,24 @@
             border-color: #6366f1;
         }
 
-        /* Animación de pulso para estado de conexión */
-        .pulse-dot {
-            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-            animation: pulse-green 2s infinite;
-        }
+        /* Tabs Logic */
+        .tab-content { display: none; animation: fadeIn 0.3s ease; }
+        .tab-content.active { display: block; }
+        .tab-btn.active { background: rgba(255,255,255,0.1); color: white; border-bottom: 2px solid #6366f1; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .history-item { animation: slideIn 0.3s ease-out forwards; }
+        .chat-bubble { max-width: 80%; word-wrap: break-word; }
         
-        @keyframes pulse-green {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-            transition: all 0.3s ease;
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-
-        .history-item {
-            animation: slideIn 0.3s ease-out forwards;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* QR Code Container Styling */
-        #qrcode img {
-            margin: 0 auto;
-            border-radius: 8px;
-            border: 4px solid white;
-        }
+        #qrcode img { margin: 0 auto; border-radius: 8px; border: 4px solid white; }
     </style>
 </head>
 <body class="flex items-center justify-center p-4">
@@ -95,180 +79,205 @@
     <!-- Sounds -->
     <audio id="snd-success" src="https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3" preload="auto"></audio>
     <audio id="snd-notify" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
+    <audio id="snd-message" src="https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3" preload="auto"></audio>
 
     <!-- Main Container -->
-    <div class="w-full max-w-2xl glass-panel rounded-3xl p-8 relative overflow-hidden transition-all duration-500 flex flex-col" style="min-height: 600px">
+    <div class="w-full max-w-3xl glass-panel rounded-3xl p-6 md:p-8 relative overflow-hidden transition-all duration-500 flex flex-col h-[85vh]">
         
         <!-- Header -->
-        <header class="flex justify-between items-center mb-8">
+        <header class="flex justify-between items-center mb-6 shrink-0">
             <div class="flex items-center gap-4">
-                <!-- Botón Home -->
                 <a href="https://siurtecshare.siurtec.com" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-gray-400 hover:text-white group" aria-label="Volver al inicio">
                     <i data-lucide="home" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
                 </a>
 
                 <div class="flex items-center gap-3 cursor-pointer" onclick="resetApp()">
-                    <i data-lucide="zap" class="text-indigo-400 w-8 h-8"></i>
-                    <h1 class="text-2xl font-bold tracking-tight text-white">SiurtecShare</h1>
+                    <div class="relative">
+                        <i data-lucide="zap" class="text-indigo-400 w-8 h-8"></i>
+                        <div id="ping-indicator" class="hidden absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0f172a]" title="Latencia baja (LAN)"></div>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight text-white leading-none">SiurtecShare</h1>
+                        <p id="connected-peer-name" class="text-[10px] text-gray-500 font-mono hidden">Conectado con: <span class="text-indigo-300">...</span></p>
+                    </div>
                 </div>
             </div>
-            <div id="connection-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 hidden">
-                <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500"></div>
-                <span id="status-text" class="text-xs font-medium text-gray-300">Conectando...</span>
+            
+            <div class="flex items-center gap-3">
+                 <!-- Nickname Edit -->
+                 <button onclick="editNickname()" class="text-xs text-gray-400 hover:text-white flex items-center gap-1 bg-white/5 px-2 py-1 rounded-lg">
+                    <i data-lucide="user" class="w-3 h-3"></i> <span id="my-nickname">Yo</span>
+                </button>
+
+                <div id="connection-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 hidden">
+                    <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500"></div>
+                    <span id="status-text" class="text-xs font-medium text-gray-300">...</span>
+                    <span id="ping-text" class="text-[10px] text-gray-500 font-mono ml-1 hidden">0ms</span>
+                </div>
             </div>
         </header>
 
-        <!-- LANDING VIEW (Menú principal) -->
-        <div id="landing-view" class="flex flex-col gap-6 animate-in fade-in zoom-in duration-500 flex-grow">
-            <div class="text-center mb-4">
-                <h2 class="text-3xl font-bold text-white mb-2">Transferencia Directa P2P</h2>
-                <p class="text-gray-400">Seguro, ilimitado, multi-archivo y sin servidores.</p>
-            </div>
+        <!-- APP BODY -->
+        <div class="flex-grow flex flex-col relative overflow-hidden">
+            
+            <!-- LANDING VIEW -->
+            <div id="landing-view" class="flex flex-col gap-6 animate-in fade-in zoom-in duration-500 flex-grow justify-center pb-20">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-white mb-2">Transferencia Directa P2P</h2>
+                    <p class="text-gray-400">Seguro, ilimitado, chat integrado y sin servidores.</p>
+                </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Opción ENVIAR -->
-                <button onclick="initHostFlow()" class="glass-panel p-8 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-indigo-500/30">
-                    <div class="w-12 h-12 bg-indigo-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                        <i data-lucide="upload-cloud" class="w-6 h-6 text-indigo-400"></i>
-                    </div>
-                    <h3 class="text-xl font-semibold text-white mb-1">Enviar Archivos</h3>
-                    <p class="text-sm text-gray-400">Crear sala, código y QR.</p>
-                </button>
-
-                <!-- Opción RECIBIR -->
-                <button onclick="showJoinUI()" class="glass-panel p-8 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-emerald-500/30">
-                    <div class="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                        <i data-lucide="download" class="w-6 h-6 text-emerald-400"></i>
-                    </div>
-                    <h3 class="text-xl font-semibold text-white mb-1">Recibir Archivos</h3>
-                    <p class="text-sm text-gray-400">Usar código o escanear QR.</p>
-                </button>
-            </div>
-        </div>
-
-        <!-- JOIN FORM VIEW (Manual Code Entry) -->
-        <div id="join-view" class="hidden flex flex-col items-center justify-center flex-grow animate-in fade-in slide-in-from-bottom-4">
-            <h2 class="text-2xl font-bold text-white mb-6">Introduce el Código</h2>
-            <div class="relative w-full max-w-xs mb-6">
-                <input type="text" id="code-input" maxlength="6" placeholder="000000" 
-                    class="w-full bg-black/30 border border-white/20 rounded-2xl px-4 py-4 text-center text-3xl font-mono tracking-[0.5em] text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all uppercase placeholder-gray-600">
-            </div>
-            <div class="flex gap-3 w-full max-w-xs">
-                <button onclick="resetApp()" class="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 transition-colors">Volver</button>
-                <button onclick="joinWithManualCode()" class="flex-1 btn-primary py-3 rounded-xl text-white font-medium">Conectar</button>
-            </div>
-        </div>
-
-        <!-- SENDER VIEW: Code Display & Drop Zone -->
-        <div id="sender-view" class="hidden transition-all duration-500 flex-grow flex flex-col">
-            <!-- Room Code Display & QR -->
-            <div class="flex flex-col items-center mb-8 relative">
-                <p class="text-sm text-gray-400 mb-2 uppercase tracking-wider font-semibold">Tu Código de Sala</p>
-                <div class="flex items-center gap-2">
-                    <div class="bg-black/30 border border-indigo-500/30 rounded-xl px-6 py-3 relative group cursor-pointer" onclick="copyCode()" title="Copiar código">
-                        <span id="room-code-display" class="text-4xl font-mono font-bold text-white tracking-widest">...</span>
-                        <div class="absolute -right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <i data-lucide="copy" class="w-5 h-5 text-gray-400"></i>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button onclick="initHostFlow()" class="glass-panel p-8 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-indigo-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <i data-lucide="upload" class="w-24 h-24 text-indigo-500"></i>
                         </div>
-                    </div>
-                    <button onclick="toggleQR()" class="p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-colors text-white border border-white/10" title="Mostrar QR">
-                        <i data-lucide="qr-code" class="w-6 h-6"></i>
+                        <div class="w-12 h-12 bg-indigo-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                            <i data-lucide="upload-cloud" class="w-6 h-6 text-indigo-400"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-1">Enviar</h3>
+                        <p class="text-sm text-gray-400">Crear sala y código QR.</p>
+                    </button>
+
+                    <button onclick="showJoinUI()" class="glass-panel p-8 rounded-2xl hover:bg-white/10 transition-all text-left group border-transparent hover:border-emerald-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <i data-lucide="download" class="w-24 h-24 text-emerald-500"></i>
+                        </div>
+                        <div class="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                            <i data-lucide="download" class="w-6 h-6 text-emerald-400"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-1">Recibir</h3>
+                        <p class="text-sm text-gray-400">Introducir código o escanear.</p>
                     </button>
                 </div>
-                
-                <!-- QR Modal (Inline absolute) -->
-                <div id="qr-container" class="hidden absolute top-full mt-4 bg-white p-4 rounded-xl shadow-2xl z-50 animate-in zoom-in duration-200">
-                    <div id="qrcode"></div>
-                    <p class="text-center text-black text-xs mt-2 font-mono">Escanear para unir</p>
+            </div>
+
+            <!-- JOIN VIEW -->
+            <div id="join-view" class="hidden flex flex-col items-center justify-center flex-grow animate-in fade-in slide-in-from-bottom-4">
+                <h2 class="text-2xl font-bold text-white mb-6">Código de Sala</h2>
+                <div class="relative w-full max-w-xs mb-6">
+                    <input type="text" id="code-input" maxlength="6" placeholder="000000" 
+                        class="w-full bg-black/30 border border-white/20 rounded-2xl px-4 py-4 text-center text-3xl font-mono tracking-[0.5em] text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all uppercase placeholder-gray-600">
+                </div>
+                <div class="flex gap-3 w-full max-w-xs">
+                    <button onclick="resetApp()" class="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 hover:bg-white/5 transition-colors">Volver</button>
+                    <button onclick="joinWithManualCode()" class="flex-1 btn-primary py-3 rounded-xl text-white font-medium">Conectar</button>
                 </div>
             </div>
 
-            <div id="drop-area" class="drop-zone h-56 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 relative">
-                <input type="file" id="file-input" class="hidden" multiple> <!-- MULTIPLE ENABLED -->
-                <i data-lucide="layers" class="w-12 h-12 text-indigo-400 mb-3"></i>
-                <p class="text-lg font-medium text-white mb-1">Arrastra tus archivos aquí</p>
-                <p class="text-sm text-gray-400">Soporta múltiples archivos y pegado (Ctrl+V)</p>
-                <div id="queue-badge" class="hidden absolute top-4 right-4 bg-indigo-500 text-white text-xs px-2 py-1 rounded-full">0 en cola</div>
-            </div>
-            
-            <!-- Link Sharing Toggle -->
-            <div class="mt-4 text-center">
-                <button onclick="toggleLinkShare()" class="text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2">
-                    Prefiero compartir un enlace
-                </button>
-                <div id="link-area" class="mt-4 hidden fade-in">
+            <!-- CONNECTED VIEW (Tabs System) -->
+            <div id="connected-view" class="hidden flex-col h-full animate-in fade-in">
+                
+                <!-- Room Info Bar (Only for Host) -->
+                <div id="host-info-bar" class="hidden mb-4 flex justify-between items-center bg-black/20 p-3 rounded-xl border border-white/5">
+                    <div class="flex items-center gap-3">
+                         <div class="bg-indigo-500/10 p-2 rounded-lg cursor-pointer" onclick="toggleQR()">
+                            <i data-lucide="qr-code" class="w-5 h-5 text-indigo-400"></i>
+                         </div>
+                         <div>
+                             <p class="text-[10px] text-gray-400 uppercase tracking-wider">CÓDIGO</p>
+                             <p id="room-code-display" class="text-xl font-mono font-bold text-white tracking-widest cursor-pointer hover:text-indigo-300" onclick="copyCode()">...</p>
+                         </div>
+                    </div>
+                    <button onclick="toggleLinkShare()" class="text-xs text-gray-500 hover:text-white flex items-center gap-1">
+                        <i data-lucide="link" class="w-3 h-3"></i> Link
+                    </button>
+                    <!-- QR Modal -->
+                    <div id="qr-container" class="hidden absolute top-20 left-4 bg-white p-4 rounded-xl shadow-2xl z-50 animate-in zoom-in duration-200">
+                        <div id="qrcode"></div>
+                    </div>
+                </div>
+
+                <!-- Link Share Area -->
+                <div id="link-area" class="hidden mb-4 animate-in slide-in-from-top-2">
                     <div class="flex gap-2">
-                        <input type="text" id="share-link" readonly class="flex-1 bg-black/30 border border-white/10 rounded-lg px-4 py-3 text-sm text-indigo-300 focus:outline-none focus:border-indigo-500 transition-colors">
-                        <button onclick="copyLink()" class="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-lg transition-colors">
-                            <i data-lucide="copy" class="w-5 h-5"></i>
+                        <input type="text" id="share-link" readonly class="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-indigo-300 focus:outline-none">
+                        <button onclick="copyLink()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 rounded-lg"><i data-lucide="copy" class="w-4 h-4"></i></button>
+                    </div>
+                </div>
+
+                <!-- TABS HEADER -->
+                <div class="flex border-b border-white/10 mb-4">
+                    <button onclick="switchTab('files')" id="tab-files-btn" class="tab-btn active flex-1 py-3 text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">
+                        <i data-lucide="layers" class="w-4 h-4"></i> Archivos <span id="queue-badge" class="hidden bg-indigo-500 text-white text-[10px] px-1.5 rounded-full">0</span>
+                    </button>
+                    <button onclick="switchTab('chat')" id="tab-chat-btn" class="tab-btn flex-1 py-3 text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2 relative">
+                        <i data-lucide="message-square" class="w-4 h-4"></i> Chat / Texto <span id="chat-badge" class="hidden w-2 h-2 bg-red-500 rounded-full absolute top-3 right-4"></span>
+                    </button>
+                </div>
+
+                <!-- TAB: FILES -->
+                <div id="tab-files" class="tab-content active flex-col h-full overflow-hidden">
+                    <!-- Drop Zone -->
+                    <div id="drop-area" class="drop-zone shrink-0 h-40 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 relative mb-4">
+                        <input type="file" id="file-input" class="hidden" multiple>
+                        <i data-lucide="upload-cloud" class="w-8 h-8 text-indigo-400 mb-2"></i>
+                        <p class="text-sm font-medium text-white">Arrastra archivos o Ctrl+V</p>
+                    </div>
+
+                    <!-- Active Transfer UI -->
+                    <div id="transfer-ui" class="hidden bg-indigo-900/20 p-4 rounded-2xl border border-indigo-500/20 mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="flex items-center gap-3 overflow-hidden">
+                                <i data-lucide="loader-2" class="w-4 h-4 text-indigo-400 animate-spin"></i>
+                                <div class="min-w-0">
+                                    <h3 id="file-name" class="font-medium text-white truncate text-sm">archivo.zip</h3>
+                                    <p id="transfer-speed" class="text-[10px] text-indigo-300 font-mono">Iniciando...</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span id="percent-text" class="text-lg font-bold text-white block">0%</span>
+                                <button onclick="cancelTransfer()" class="text-[10px] text-red-400 hover:text-red-300 underline">Cancelar</button>
+                            </div>
+                        </div>
+                        <div class="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden backdrop-blur-sm mb-1">
+                            <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+                            <span id="storage-mode">Mode: Auto</span>
+                            <span id="eta-text">ETA: --s</span>
+                        </div>
+                    </div>
+
+                    <!-- History List -->
+                    <div class="flex-grow overflow-y-auto no-scrollbar relative bg-black/10 rounded-2xl border border-white/5 p-2">
+                        <div id="history-empty" class="absolute inset-0 flex flex-col items-center justify-center text-gray-600">
+                            <i data-lucide="history" class="w-8 h-8 mb-2 opacity-50"></i>
+                            <p class="text-xs">Historial de archivos</p>
+                        </div>
+                        <div id="history-list" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <!-- TAB: CHAT -->
+                <div id="tab-chat" class="tab-content flex-col h-full overflow-hidden">
+                    <div id="chat-messages" class="flex-grow overflow-y-auto no-scrollbar bg-black/10 rounded-2xl border border-white/5 p-4 space-y-3 mb-4 flex flex-col">
+                        <!-- Messages go here -->
+                        <div class="text-center text-xs text-gray-600 my-4">Chat encriptado P2P iniciado</div>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                        <input type="text" id="chat-input" placeholder="Escribe un mensaje o pega una URL..." class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors" onkeypress="handleChatKey(event)">
+                        <button onclick="sendChat()" class="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl transition-colors">
+                            <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- RECEIVER VIEW: Download Prompt -->
-        <div id="receiver-view" class="hidden text-center py-10 flex-grow">
-            <div class="animate-pulse mb-6 flex justify-center">
-                <div class="w-20 h-20 rounded-full bg-indigo-500/20 flex items-center justify-center">
-                    <i data-lucide="hard-drive-download" class="w-10 h-10 text-indigo-400"></i>
-                </div>
-            </div>
-            <h2 class="text-xl font-semibold text-white mb-2">Conectado y Esperando</h2>
-            <p class="text-gray-400 mb-8 max-w-md mx-auto">El emisor puede añadir archivos a la cola en cualquier momento.</p>
-        </div>
-
-        <!-- ACTIVE TRANSFER UI (Shared) -->
-        <div id="transfer-ui" class="hidden mt-6 bg-black/20 p-4 rounded-2xl border border-white/5">
-            <div class="flex justify-between items-center mb-3">
-                <div class="flex items-center gap-3 overflow-hidden">
-                    <div class="bg-indigo-500/20 p-2 rounded-lg">
-                        <i data-lucide="file" class="w-5 h-5 text-indigo-300"></i>
-                    </div>
-                    <div class="min-w-0">
-                        <h3 id="file-name" class="font-medium text-white truncate text-sm">archivo.zip</h3>
-                        <p id="transfer-speed" class="text-xs text-indigo-300 font-mono">Iniciando...</p>
-                    </div>
-                </div>
-                <div class="text-right">
-                    <span id="percent-text" class="text-xl font-bold text-white block">0%</span>
-                    <button onclick="cancelTransfer()" class="text-xs text-red-400 hover:text-red-300 underline mt-1">Cancelar</button>
-                </div>
-            </div>
-            
-            <div class="w-full bg-gray-700/50 rounded-full h-2 overflow-hidden backdrop-blur-sm mb-2">
-                <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
-            </div>
-            
-            <div class="flex justify-between text-[10px] text-gray-500 font-mono uppercase">
-                <span id="storage-mode">Mode: Checking...</span>
-                <span id="eta-text">ETA: --:--</span>
-            </div>
-        </div>
-
-        <!-- HISTORY LOG -->
-        <div id="history-container" class="mt-8 border-t border-white/5 pt-6 hidden">
-            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <i data-lucide="history" class="w-3 h-3"></i> Historial de Sesión
-            </h4>
-            <div id="history-list" class="space-y-3 max-h-40 overflow-y-auto no-scrollbar pr-2">
-                <!-- Items injected here -->
             </div>
         </div>
 
         <!-- Footer -->
-        <div class="mt-auto pt-6 border-t border-white/5 text-center flex justify-between items-center">
-            <p class="text-xs text-gray-600 font-mono">P2P ENCRYPTED • SERVERLESS</p>
-            <div class="text-xs text-gray-600" id="wake-lock-status">Wait Mode</div>
+        <div class="mt-4 pt-4 border-t border-white/5 text-center flex justify-between items-center shrink-0">
+            <p class="text-[10px] text-gray-600 font-mono">P2P ENCRYPTED • <span id="net-type">NET</span></p>
+            <div class="text-[10px] text-gray-600 flex items-center gap-1" id="wake-lock-status">
+                <i data-lucide="zap-off" class="w-3 h-3"></i> Power Saving
+            </div>
         </div>
-
     </div>
 
     <script>
-        // --- CONFIGURACIÓN E INICIALIZACIÓN ---
+        // --- CONFIG & STATE ---
         lucide.createIcons();
-        
-        // PeerJS Config
         const peerConfig = {
             config: {
                 iceServers: [
@@ -276,35 +285,36 @@
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ]
             },
-            debug: 1
+            debug: 1,
+            pingInterval: 5000
         };
 
-        // GLOBAL STATE
+        const APP_PREFIX = 'siurtec-share-v2-'; // v2 prefix
         let peer = null;
         let conn = null;
         let isHost = false;
-        const APP_PREFIX = 'siurtec-share-v1-';
+        let myNickname = localStorage.getItem('siurtec_nick') || 'Usuario_' + Math.floor(Math.random()*1000);
+        let peerNickname = "Desconocido";
         
-        // Transfer Queue State
         let fileQueue = [];
         let isTransferring = false;
-        let currentFileTransfer = null; // To support cancellation
         let wakeLockSentinel = null;
+        let pingStart = 0;
+        let pingTimer = null;
 
-        // UI References
+        // UI Refs
         const ui = {
             landingView: document.getElementById('landing-view'),
             joinView: document.getElementById('join-view'),
-            senderView: document.getElementById('sender-view'),
-            receiverView: document.getElementById('receiver-view'),
-            connectionStatus: document.getElementById('connection-status'),
+            connectedView: document.getElementById('connected-view'),
+            hostInfoBar: document.getElementById('host-info-bar'),
             statusDot: document.getElementById('status-dot'),
             statusText: document.getElementById('status-text'),
+            connectionStatus: document.getElementById('connection-status'),
             roomCodeDisplay: document.getElementById('room-code-display'),
             codeInput: document.getElementById('code-input'),
             dropArea: document.getElementById('drop-area'),
             fileInput: document.getElementById('file-input'),
-            linkArea: document.getElementById('link-area'),
             shareLink: document.getElementById('share-link'),
             transferUI: document.getElementById('transfer-ui'),
             progressBar: document.getElementById('progress-bar'),
@@ -313,595 +323,556 @@
             fileName: document.getElementById('file-name'),
             etaText: document.getElementById('eta-text'),
             storageMode: document.getElementById('storage-mode'),
-            queueBadge: document.getElementById('queue-badge'),
-            historyContainer: document.getElementById('history-container'),
             historyList: document.getElementById('history-list'),
-            qrContainer: document.getElementById('qr-container'),
-            wakeLockStatus: document.getElementById('wake-lock-status')
+            historyEmpty: document.getElementById('history-empty'),
+            chatMessages: document.getElementById('chat-messages'),
+            chatInput: document.getElementById('chat-input'),
+            pingText: document.getElementById('ping-text'),
+            pingIndicator: document.getElementById('ping-indicator'),
+            myNicknameDisplay: document.getElementById('my-nickname'),
+            connectedPeerName: document.getElementById('connected-peer-name'),
+            queueBadge: document.getElementById('queue-badge'),
+            chatBadge: document.getElementById('chat-badge'),
+            netType: document.getElementById('net-type')
         };
 
-        // Sounds
         const sounds = {
             success: document.getElementById('snd-success'),
-            notify: document.getElementById('snd-notify')
+            notify: document.getElementById('snd-notify'),
+            message: document.getElementById('snd-message')
         };
 
-        // Constantes
-        const CHUNK_SIZE = 16 * 1024; 
-        const BUFFER_THRESHOLD = 64 * 1024; 
+        const CHUNK_SIZE = 16 * 1024;
+        const BUFFER_THRESHOLD = 64 * 1024;
 
-        // --- CORE LOGIC ---
-
+        // --- INIT ---
         function init() {
-            // Check for Hash Code
+            ui.myNicknameDisplay.innerText = myNickname;
+            
             const hash = window.location.hash.substring(1);
             if (hash) {
                 const code = hash.replace(APP_PREFIX, '');
                 initGuestFlow(code);
-            } else {
-                ui.landingView.classList.remove('hidden');
             }
 
-            // Notification Permission
             if ("Notification" in window && Notification.permission !== "granted") {
                 Notification.requestPermission();
             }
 
-            // Paste Event Listener
             document.addEventListener('paste', handlePaste);
+            
+            // Tab switching logic
+            window.switchTab = (tabName) => {
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+                
+                document.getElementById(`tab-${tabName}`).classList.add('active');
+                document.getElementById(`tab-${tabName}-btn`).classList.add('active');
+
+                if (tabName === 'chat') {
+                    ui.chatBadge.classList.add('hidden');
+                    ui.chatInput.focus();
+                }
+            };
         }
 
-        function resetApp() {
-            window.location.href = window.location.pathname;
-        }
-
-        function showStatus() {
-            ui.connectionStatus.classList.remove('hidden');
-            ui.connectionStatus.classList.add('flex');
-        }
-
-        function updateStatus(state) {
-            showStatus();
-            switch(state) {
-                case 'connected':
-                    ui.statusDot.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-dot";
-                    ui.statusText.innerText = "Conectado";
-                    ui.statusText.className = "text-xs font-medium text-emerald-300";
-                    break;
-                case 'disconnected':
-                    ui.statusDot.className = "w-2 h-2 rounded-full bg-red-500";
-                    ui.statusText.innerText = "Desconectado";
-                    ui.statusText.className = "text-xs font-medium text-red-300";
-                    break;
-                case 'error':
-                    ui.statusDot.className = "w-2 h-2 rounded-full bg-red-500";
-                    ui.statusText.innerText = "Error";
-                    break;
-                default:
-                    ui.statusDot.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
-                    ui.statusText.innerText = "Conectando...";
+        function editNickname() {
+            const newNick = prompt("Elige tu nombre visible:", myNickname);
+            if (newNick && newNick.trim() !== "") {
+                myNickname = newNick.trim().substring(0, 15);
+                localStorage.setItem('siurtec_nick', myNickname);
+                ui.myNicknameDisplay.innerText = myNickname;
+                if(conn && conn.open) {
+                    conn.send({ type: 'sys-info', nickname: myNickname });
+                }
             }
         }
 
-        // --- HOST FLOW (SENDER) ---
+        function resetApp() {
+            if(confirm("¿Desconectar y volver al inicio?")) {
+                window.location.href = window.location.pathname;
+            }
+        }
+
+        // --- CONNECTION LOGIC ---
 
         function initHostFlow() {
             ui.landingView.classList.add('hidden');
-            ui.senderView.classList.remove('hidden');
-            showStatus();
+            ui.connectedView.classList.remove('hidden');
+            ui.connectedView.classList.add('flex');
+            ui.hostInfoBar.classList.remove('hidden'); // Show host controls
             isHost = true;
 
+            updateStatus('waiting');
             const shortCode = Math.floor(100000 + Math.random() * 900000).toString();
-            const fullPeerId = APP_PREFIX + shortCode;
-
             ui.roomCodeDisplay.innerText = shortCode;
             
             const link = `${window.location.origin}${window.location.pathname}#${shortCode}`;
             ui.shareLink.value = link;
 
-            // Generate QR
             new QRCode(document.getElementById("qrcode"), {
                 text: link,
-                width: 128,
-                height: 128,
-                colorDark : "#000000",
-                colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.H
+                width: 128, height: 128,
+                colorDark : "#000000", colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
             });
 
-            peer = new Peer(fullPeerId, peerConfig);
-
-            peer.on('open', (id) => {
-                updateStatus('waiting');
-                ui.statusText.innerText = "Esperando par...";
-            });
-
-            peer.on('error', (err) => {
-                if (err.type === 'unavailable-id') {
-                    peer.destroy();
-                    initHostFlow(); 
-                } else {
-                    alert("Error PeerJS: " + err.type);
-                }
-            });
-
-            peer.on('connection', (connection) => {
-                conn = connection;
-                setupConnectionEvents();
-                // If files were dropped before connection, they are in queue. Start automatically?
-                // Better wait for user or just process queue if not empty.
-                if (fileQueue.length > 0) processQueue();
-            });
-
-            setupDragAndDrop();
-        }
-
-        function toggleQR() {
-            ui.qrContainer.classList.toggle('hidden');
-        }
-
-        function toggleLinkShare() {
-            document.getElementById('link-area').classList.toggle('hidden');
-        }
-
-        function copyCode() {
-            navigator.clipboard.writeText(ui.roomCodeDisplay.innerText).then(() => {
-                const original = ui.roomCodeDisplay.innerText;
-                ui.roomCodeDisplay.innerText = "COPIADO";
-                ui.roomCodeDisplay.classList.add("text-emerald-400");
-                setTimeout(() => {
-                    ui.roomCodeDisplay.innerText = original;
-                    ui.roomCodeDisplay.classList.remove("text-emerald-400");
-                }, 1000);
-            });
-        }
-
-        // --- GUEST FLOW (RECEIVER) ---
-
-        function showJoinUI() {
-            ui.landingView.classList.add('hidden');
-            ui.joinView.classList.remove('hidden');
-            ui.codeInput.focus();
-        }
-
-        function joinWithManualCode() {
-            const code = ui.codeInput.value.trim();
-            if (code.length < 5) { 
-                alert("Código inválido");
-                return;
-            }
-            initGuestFlow(code);
+            peer = new Peer(APP_PREFIX + shortCode, peerConfig);
+            setupPeerEvents();
         }
 
         function initGuestFlow(code) {
             ui.landingView.classList.add('hidden');
             ui.joinView.classList.add('hidden');
-            ui.receiverView.classList.remove('hidden');
-            showStatus();
+            ui.connectedView.classList.remove('hidden');
+            ui.connectedView.classList.add('flex');
             isHost = false;
 
-            const targetId = APP_PREFIX + code;
+            updateStatus('connecting');
             peer = new Peer(null, peerConfig);
-
+            
             peer.on('open', () => {
-                updateStatus('connecting');
-                conn = peer.connect(targetId, { reliable: true });
+                conn = peer.connect(APP_PREFIX + code, { reliable: true });
                 setupConnectionEvents();
             });
-
+            
             peer.on('error', (err) => {
-                alert("No se pudo conectar. Verifica el código.");
-                resetApp();
+                alert("Error conectando: " + err.type);
+                location.reload();
             });
         }
 
-        // --- CONNECTION HANDLERS ---
+        function joinWithManualCode() {
+            const code = ui.codeInput.value.trim();
+            if (code.length < 5) return alert("Código inválido");
+            initGuestFlow(code);
+        }
+
+        function setupPeerEvents() {
+            peer.on('open', (id) => updateStatus('waiting'));
+            peer.on('connection', (connection) => {
+                if(conn && conn.open) { connection.close(); return; } // One peer limit
+                conn = connection;
+                setupConnectionEvents();
+            });
+            peer.on('error', (err) => {
+                if(err.type === 'unavailable-id') { 
+                    peer.destroy(); 
+                    initHostFlow(); // Retry ID generation
+                }
+            });
+        }
 
         function setupConnectionEvents() {
             conn.on('open', () => {
                 updateStatus('connected');
-                sounds.success.play().catch(e => {}); // Play connect sound
+                sounds.success.play().catch(()=>{});
                 
-                if (!isHost) {
-                    ui.receiverView.querySelector('h2').innerText = "Conectado";
-                    ui.receiverView.querySelector('p').innerText = "Esperando archivos...";
-                } else {
-                    ui.dropArea.classList.add('border-emerald-500');
-                    ui.dropArea.querySelector('p').innerText = "Conectado. Arrastra archivos.";
-                    if(fileQueue.length > 0) processQueue();
-                }
+                // Exchange Nicknames
+                conn.send({ type: 'sys-info', nickname: myNickname });
+                startPing();
+
+                if (fileQueue.length > 0) processQueue();
             });
 
             conn.on('data', handleData);
             
             conn.on('close', () => {
                 updateStatus('disconnected');
-                alert("Conexión finalizada.");
-                resetApp(); 
+                stopPing();
+                alert("Peer desconectado.");
+                location.reload();
             });
         }
 
-        // --- FILE QUEUE & TRANSFER LOGIC ---
+        // --- PING / SYSTEM INFO ---
 
-        // Wake Lock
-        async function requestWakeLock() {
-            try {
-                wakeLockSentinel = await navigator.wakeLock.request('screen');
-                ui.wakeLockStatus.innerText = "⚡ High Performance Mode";
-                ui.wakeLockStatus.classList.add('text-emerald-400');
-            } catch (err) {
-                console.log('Wake Lock failed', err);
+        function startPing() {
+            if(pingTimer) clearInterval(pingTimer);
+            pingTimer = setInterval(() => {
+                if(conn && conn.open) {
+                    pingStart = Date.now();
+                    conn.send({ type: 'ping' });
+                }
+            }, 2000);
+        }
+
+        function stopPing() { clearInterval(pingTimer); }
+
+        function handleSysInfo(data) {
+            if (data.nickname) {
+                peerNickname = data.nickname;
+                ui.connectedPeerName.classList.remove('hidden');
+                ui.connectedPeerName.querySelector('span').innerText = peerNickname;
             }
         }
 
-        function releaseWakeLock() {
-            if (wakeLockSentinel) {
-                wakeLockSentinel.release();
-                wakeLockSentinel = null;
-                ui.wakeLockStatus.innerText = "Wait Mode";
-                ui.wakeLockStatus.classList.remove('text-emerald-400');
-            }
+        function handlePing() {
+            conn.send({ type: 'pong' });
         }
 
-        // [SENDER] Input Handling
-        function setupDragAndDrop() {
-            ui.dropArea.addEventListener('click', () => ui.fileInput.click());
+        function handlePong() {
+            const latency = Date.now() - pingStart;
+            ui.pingText.innerText = latency + 'ms';
+            ui.pingText.classList.remove('hidden');
             
-            ui.dropArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                ui.dropArea.classList.add('drag-active');
-            });
-            ui.dropArea.addEventListener('dragleave', () => {
-                ui.dropArea.classList.remove('drag-active');
-            });
+            // Logic to guess LAN
+            if (latency < 10) {
+                ui.pingIndicator.classList.remove('hidden');
+                ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#0f172a] shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+                ui.netType.innerText = "LOCAL LAN (FAST)";
+                ui.netType.classList.add('text-emerald-400');
+            } else {
+                ui.pingIndicator.className = "absolute -bottom-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full border-2 border-[#0f172a]";
+                ui.netType.innerText = "RELAY/INTERNET";
+                ui.netType.classList.remove('text-emerald-400');
+            }
+        }
+
+        // --- FILE TRANSFER ---
+
+        function setupDragAndDrop() {
+            // Already set in HTML attributes, adding listeners
+            ui.dropArea.addEventListener('click', () => ui.fileInput.click());
+            ui.dropArea.addEventListener('dragover', (e) => { e.preventDefault(); ui.dropArea.classList.add('drag-active'); });
+            ui.dropArea.addEventListener('dragleave', () => ui.dropArea.classList.remove('drag-active'));
             ui.dropArea.addEventListener('drop', (e) => {
                 e.preventDefault();
                 ui.dropArea.classList.remove('drag-active');
                 handleFiles(e.dataTransfer.files);
             });
-            ui.fileInput.addEventListener('change', (e) => {
-                handleFiles(e.target.files);
-            });
+            ui.fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
         }
+        setupDragAndDrop();
 
         function handlePaste(e) {
-            // Only handle paste if we are in Sender View
-            if (ui.senderView.classList.contains('hidden')) return;
+            // Check if user is typing in chat input
+            if (document.activeElement === ui.chatInput) return;
 
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
             const files = [];
             for (let item of items) {
-                if (item.kind === 'file') {
-                    files.push(item.getAsFile());
-                }
+                if (item.kind === 'file') files.push(item.getAsFile());
             }
-            if (files.length > 0) {
-                handleFiles(files);
-            }
+            if (files.length > 0) handleFiles(files);
         }
 
-        function handleFiles(fileList) {
-            if (!fileList || fileList.length === 0) return;
-            
-            // Add to queue
-            for (let i = 0; i < fileList.length; i++) {
-                fileQueue.push(fileList[i]);
-            }
-
+        function handleFiles(list) {
+            if(!list.length) return;
+            for(let f of list) fileQueue.push(f);
             updateQueueUI();
-
-            if (!conn || !conn.open) {
-                // If not connected, just show queue
-                return;
-            }
-            
-            // Auto start if idle
-            if (!isTransferring) {
-                processQueue();
-            }
+            if(!isTransferring && conn && conn.open) processQueue();
         }
 
         function updateQueueUI() {
-            if (fileQueue.length > 0) {
-                ui.queueBadge.innerText = `${fileQueue.length} en cola`;
-                ui.queueBadge.classList.remove('hidden');
-                ui.queueBadge.classList.add('animate-bounce');
-            } else {
-                ui.queueBadge.classList.add('hidden');
-                ui.queueBadge.classList.remove('animate-bounce');
-            }
+            ui.queueBadge.innerText = fileQueue.length;
+            ui.queueBadge.classList.toggle('hidden', fileQueue.length === 0);
         }
 
-        // [SENDER] Queue Processor
         async function processQueue() {
-            if (fileQueue.length === 0) {
-                isTransferring = false;
-                releaseWakeLock();
-                return;
-            }
-
+            if (fileQueue.length === 0) { isTransferring = false; releaseWakeLock(); return; }
             isTransferring = true;
             requestWakeLock();
-            const file = fileQueue.shift(); // Get first
+            
+            const file = fileQueue.shift();
             updateQueueUI();
-
+            
             try {
-                await startTransfer(file);
-                // Success logic
+                await sendFile(file);
+                // History log sender
                 addHistoryItem(file, 'sent');
-                setTimeout(processQueue, 500); // Small delay before next
+                setTimeout(processQueue, 200);
             } catch (err) {
-                console.error("Transfer failed/cancelled", err);
-                isTransferring = false; // Stop queue on error? or continue?
-                // For cancellation, we probably want to continue queue or stop. 
-                // Let's stop to be safe.
+                console.error(err);
+                isTransferring = false;
             }
         }
 
-        function cancelTransfer() {
-            if (conn) {
-                // Send a cancel signal to receiver?
-                // Simplest is just closing the data channel logic on sender side
-                // and sending an 'abort' message
-                conn.send({ type: 'abort' });
-                // We fake an error to stop the local promise
-                // This will be caught in processQueue
-            }
-            // Force reset UI handled in catch/finally logic normally, 
-            // but here we need to trigger it manually
-            isTransferring = false;
-            ui.transferUI.classList.add('hidden');
-            ui.senderView.classList.remove('hidden');
-            alert("Transferencia cancelada.");
-        }
-
-        // [SENDER] Single File Transfer
-        function startTransfer(file) {
+        function sendFile(file) {
             return new Promise((resolve, reject) => {
-                ui.senderView.classList.add('hidden');
+                ui.dropArea.classList.add('hidden');
                 ui.transferUI.classList.remove('hidden');
                 ui.fileName.innerText = file.name;
-                ui.storageMode.innerText = "Sending...";
                 
                 let offset = 0;
                 const startTime = Date.now();
                 let isCancelled = false;
 
-                // Listen for abort from user
-                // We override the global cancel function for this specific scope
-                const oldCancel = window.cancelTransfer;
                 window.cancelTransfer = () => {
                     isCancelled = true;
                     conn.send({ type: 'abort' });
-                    reject(new Error("Cancelled by user"));
+                    reject("Cancelled");
                     ui.transferUI.classList.add('hidden');
-                    if(isHost) ui.senderView.classList.remove('hidden');
-                    window.cancelTransfer = oldCancel; // Restore
+                    ui.dropArea.classList.remove('hidden');
                 };
 
-                conn.send({
-                    type: 'metadata',
-                    name: file.name,
-                    size: file.size,
-                    mime: file.type
-                });
+                conn.send({ type: 'metadata', name: file.name, size: file.size, mime: file.type });
 
                 const readSlice = () => {
                     if (isCancelled) return;
-                    
                     if (offset >= file.size) {
                         conn.send({ type: 'end' });
-                        // Transfer done visually
                         ui.transferUI.classList.add('hidden');
-                        if(isHost) ui.senderView.classList.remove('hidden');
-                        
-                        resolve(); // Queue continues
-                        return; 
+                        ui.dropArea.classList.remove('hidden');
+                        resolve();
+                        return;
                     }
-
                     if (conn.dataChannel.bufferedAmount > BUFFER_THRESHOLD) {
-                        const waitHandler = () => {
-                            conn.dataChannel.removeEventListener('bufferedamountlow', waitHandler);
+                        conn.dataChannel.onbufferedamountlow = () => {
+                            conn.dataChannel.onbufferedamountlow = null;
                             readSlice();
                         };
-                        conn.dataChannel.onbufferedamountlow = waitHandler;
-                        return; 
+                        return;
                     }
-
                     const slice = file.slice(offset, offset + CHUNK_SIZE);
                     const reader = new FileReader();
                     reader.onload = (e) => {
                         if (isCancelled) return;
-                        conn.send(e.target.result); 
+                        conn.send(e.target.result);
                         offset += e.target.result.byteLength;
                         updateProgress(offset, file.size, startTime);
-                        setTimeout(readSlice, 0); 
+                        setTimeout(readSlice, 0); // Unblock UI
                     };
                     reader.readAsArrayBuffer(slice);
                 };
-
                 readSlice();
             });
         }
 
-        // [RECEIVER] Logic
-        let incomingFileInfo = null;
-        let bytesReceived = 0;
-        let receiveBuffer = []; 
-        let fileStreamWriter = null;
-        let receiveStartTime = 0;
+        // --- RECEIVER LOGIC ---
+        let incomingInfo = null;
+        let receivedBytes = 0;
+        let receiveBuffer = []; // For RAM fallback
+        let streamWriter = null; // StreamSaver writer
+        let receiveStart = 0;
 
         async function handleData(data) {
-            // META
+            // System Messages
+            if (data.type === 'ping') return handlePing();
+            if (data.type === 'pong') return handlePong();
+            if (data.type === 'sys-info') return handleSysInfo(data);
+            if (data.type === 'chat') return receiveChat(data);
+            if (data.type === 'abort') return handleAbort();
+
+            // File Messages
             if (data.type === 'metadata') {
-                incomingFileInfo = data;
-                bytesReceived = 0;
+                incomingInfo = data;
+                receivedBytes = 0;
                 receiveBuffer = [];
-                receiveStartTime = Date.now();
-                fileStreamWriter = null;
+                receiveStart = Date.now();
                 requestWakeLock();
                 
-                ui.receiverView.classList.add('hidden');
+                // Switch to files tab if needed
+                if (!document.getElementById('tab-files').classList.contains('active')) {
+                     ui.queueBadge.classList.remove('hidden'); // Use badge as notification
+                     ui.queueBadge.innerText = "!";
+                }
+
+                ui.dropArea.classList.add('hidden');
                 ui.transferUI.classList.remove('hidden');
                 ui.fileName.innerText = data.name;
-
-                // Priority 1: Native FS (Only if supported and user interaction allowed... 
-                // For queue, native FS prompts for EVERY file, which is annoying.
-                // We will try StreamSaver first for queues or just StreamSaver generally for better UX in batches)
                 
-                // Let's prefer StreamSaver for "zero-click" feeling in queues if possible
-                // Priority: StreamSaver -> Native FS -> RAM
-                
+                // Try StreamSaver
                 try {
                     const fileStream = streamSaver.createWriteStream(data.name, { size: data.size });
-                    fileStreamWriter = fileStream.getWriter();
-                    ui.storageMode.innerText = "Mode: StreamSaver";
-                    window.onbeforeunload = () => { if (fileStreamWriter) fileStreamWriter.abort(); }
-                    return;
-                } catch (err) { console.error("StreamSaver error", err); }
-                
-                // Fallback RAM
-                ui.storageMode.innerText = "Mode: RAM Buffer";
+                    streamWriter = fileStream.getWriter();
+                    ui.storageMode.innerText = "Direct Stream";
+                    window.onbeforeunload = () => streamWriter.abort();
+                } catch(e) {
+                    ui.storageMode.innerText = "RAM Buffer";
+                }
                 return;
             }
 
-            // ABORT
-            if (data.type === 'abort') {
-                if (fileStreamWriter) await fileStreamWriter.abort();
-                ui.transferUI.classList.add('hidden');
-                if(!isHost) ui.receiverView.classList.remove('hidden');
-                alert("El emisor canceló la transferencia.");
-                releaseWakeLock();
-                return;
-            }
-
-            // END
             if (data.type === 'end') {
-                await finalizeReceiver();
+                finalizeTransfer();
                 return;
             }
 
-            // CHUNK
-            bytesReceived += data.byteLength;
-            updateProgress(bytesReceived, incomingFileInfo.size, receiveStartTime);
-
-            if (fileStreamWriter) {
-                await fileStreamWriter.write(new Uint8Array(data));
+            // Chunks
+            receivedBytes += data.byteLength;
+            updateProgress(receivedBytes, incomingInfo.size, receiveStart);
+            
+            if (streamWriter) {
+                await streamWriter.write(new Uint8Array(data));
             } else {
                 receiveBuffer.push(data);
             }
         }
 
-        async function finalizeReceiver() {
-            window.onbeforeunload = null;
-
-            if (fileStreamWriter) {
-                await fileStreamWriter.close();
-                fileStreamWriter = null;
+        async function finalizeTransfer() {
+            if (streamWriter) {
+                await streamWriter.close();
+                streamWriter = null;
             } else {
-                // RAM Download
-                const blob = new Blob(receiveBuffer, { type: incomingFileInfo.mime });
+                const blob = new Blob(receiveBuffer, { type: incomingInfo.mime });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url;
-                a.download = incomingFileInfo.name;
-                a.click();
-                setTimeout(() => { URL.revokeObjectURL(url); receiveBuffer = []; }, 1000);
+                a.href = url; a.download = incomingInfo.name; a.click();
+                
+                // Log with Blob for preview
+                addHistoryItem(incomingInfo, 'received', blob);
+                receiveBuffer = [];
+                
+                finishTransferUI();
+                return; // Early return as history is handled
             }
 
-            // UI Feedback
-            sounds.notify.play().catch(e => {});
-            if (Notification.permission === "granted" && document.hidden) {
-                new Notification("Transferencia Completada", {
-                    body: `${incomingFileInfo.name} se ha guardado.`
-                });
-            }
+            // If StreamSaver, we don't have the blob for preview easily without rereading
+            // We'll log standard history
+            addHistoryItem(incomingInfo, 'received');
+            finishTransferUI();
+        }
 
-            // Log History
-            addHistoryItem({ name: incomingFileInfo.name, size: incomingFileInfo.size, type: incomingFileInfo.mime }, 'received');
-
-            // Reset View for next file
+        function finishTransferUI() {
+            window.onbeforeunload = null;
             ui.transferUI.classList.add('hidden');
-            ui.receiverView.classList.remove('hidden');
-            ui.receiverView.querySelector('p').innerText = "Esperando siguiente archivo...";
+            ui.dropArea.classList.remove('hidden');
             releaseWakeLock();
+            sounds.notify.play().catch(()=>{});
+            
+            if(document.hidden) new Notification("Archivo Recibido", { body: incomingInfo.name });
         }
 
-        // --- UI UTILS ---
+        function handleAbort() {
+             if(streamWriter) streamWriter.abort();
+             ui.transferUI.classList.add('hidden');
+             ui.dropArea.classList.remove('hidden');
+             alert("Transferencia cancelada por el emisor.");
+        }
 
-        function updateProgress(loaded, total, startTime) {
-            const percent = ((loaded / total) * 100).toFixed(1);
-            ui.progressBar.style.width = `${percent}%`;
-            ui.percentText.innerText = `${Math.floor(percent)}%`;
+        // --- CHAT LOGIC ---
+
+        function handleChatKey(e) { if(e.key === 'Enter') sendChat(); }
+
+        function sendChat() {
+            const text = ui.chatInput.value.trim();
+            if(!text || !conn) return;
             
-            const now = Date.now();
-            const elapsed = (now - startTime) / 1000;
-            const speed = loaded / elapsed; 
-            ui.speedText.innerText = formatSpeed(speed);
-            
-            if (speed > 0) {
-                const remaining = total - loaded;
-                ui.etaText.innerText = `ETA: ${formatTime(remaining / speed)}`;
+            const msg = { type: 'chat', text: text, sender: myNickname, time: Date.now() };
+            conn.send(msg);
+            appendChatBubble(msg, true);
+            ui.chatInput.value = '';
+        }
+
+        function receiveChat(msg) {
+            appendChatBubble(msg, false);
+            sounds.message.play().catch(()=>{});
+            if (!document.getElementById('tab-chat').classList.contains('active')) {
+                ui.chatBadge.classList.remove('hidden');
             }
         }
 
-        function addHistoryItem(file, direction) {
-            ui.historyContainer.classList.remove('hidden');
+        function appendChatBubble(msg, isMe) {
+            const div = document.createElement('div');
+            div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
             
-            const isImage = file.type && file.type.startsWith('image/');
-            const icon = isImage ? 'image' : 'file';
-            const colorClass = direction === 'sent' ? 'text-indigo-400' : 'text-emerald-400';
-            const arrowIcon = direction === 'sent' ? 'arrow-up-right' : 'arrow-down-left';
+            // Check if link
+            let content = msg.text;
+            const linkRegex = /(https?:\/\/[^\s]+)/g;
+            if (linkRegex.test(content)) {
+                content = content.replace(linkRegex, '<a href="$1" target="_blank" class="underline text-indigo-300">$1</a>');
+            }
+
+            div.innerHTML = `
+                <div class="chat-bubble px-4 py-2 rounded-2xl text-sm ${isMe ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white/10 text-gray-200 rounded-tl-none'}">
+                    ${content}
+                </div>
+                <span class="text-[10px] text-gray-500 mt-1">${isMe ? 'Yo' : msg.sender} • ${new Date(msg.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            `;
+            ui.chatMessages.appendChild(div);
+            ui.chatMessages.scrollTop = ui.chatMessages.scrollHeight;
+        }
+
+        // --- UTILS ---
+
+        function updateStatus(st) {
+            ui.connectionStatus.classList.remove('hidden');
+            ui.connectionStatus.classList.add('flex');
+            
+            const config = {
+                'connected': { color: 'bg-emerald-500', text: 'Conectado', textCol: 'text-emerald-400' },
+                'disconnected': { color: 'bg-red-500', text: 'Desconectado', textCol: 'text-red-400' },
+                'waiting': { color: 'bg-yellow-500', text: 'Esperando...', textCol: 'text-yellow-400' },
+                'connecting': { color: 'bg-blue-500', text: 'Conectando...', textCol: 'text-blue-400' }
+            }[st] || { color: 'bg-gray-500', text: st };
+
+            ui.statusDot.className = `w-2 h-2 rounded-full ${config.color} ${st === 'connected' ? 'pulse-dot' : ''}`;
+            ui.statusText.innerText = config.text;
+            ui.statusText.className = `text-xs font-medium ${config.textCol || 'text-gray-300'}`;
+        }
+
+        function updateProgress(loaded, total, start) {
+            const pct = ((loaded/total)*100).toFixed(0);
+            ui.progressBar.style.width = `${pct}%`;
+            ui.percentText.innerText = `${pct}%`;
+            
+            const elapsed = (Date.now() - start)/1000;
+            const rate = loaded/elapsed;
+            ui.speedText.innerText = formatBytes(rate) + '/s';
+            if(rate > 0) ui.etaText.innerText = `ETA: ${Math.ceil((total-loaded)/rate)}s`;
+        }
+
+        function addHistoryItem(file, direction, blob = null) {
+            ui.historyEmpty.classList.add('hidden');
+            const isImg = file.type && file.type.startsWith('image/');
+            const color = direction === 'sent' ? 'text-indigo-400' : 'text-emerald-400';
+            
+            let iconHtml = `<i data-lucide="${isImg?'image':'file'}" class="w-4 h-4 text-white"></i>`;
+            
+            // Image Preview
+            if (isImg && blob) {
+                const url = URL.createObjectURL(blob);
+                iconHtml = `<img src="${url}" class="w-8 h-8 object-cover rounded-md border border-white/20" onclick="window.open('${url}')">`;
+            } else if (isImg && direction === 'sent') {
+                 // Try to read local file for preview? Too heavy for history list maybe.
+            }
 
             const item = document.createElement('div');
-            item.className = "flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 history-item";
+            item.className = "history-item flex items-center justify-between p-2 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors";
             item.innerHTML = `
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="p-2 rounded-lg bg-black/30 ${colorClass}">
-                        <i data-lucide="${icon}" class="w-4 h-4"></i>
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-10 h-10 flex items-center justify-center bg-black/30 rounded-lg shrink-0">
+                        ${iconHtml}
                     </div>
                     <div class="min-w-0">
-                        <p class="text-sm font-medium text-gray-200 truncate max-w-[150px] md:max-w-[300px]">${file.name}</p>
-                        <p class="text-xs text-gray-500">${formatBytes(file.size)} • ${direction === 'sent' ? 'Enviado' : 'Recibido'}</p>
+                        <p class="text-sm font-medium text-gray-200 truncate">${file.name}</p>
+                        <p class="text-[10px] text-gray-500">${formatBytes(file.size)} • ${direction==='sent'?'Enviado':'Recibido'}</p>
                     </div>
                 </div>
-                <i data-lucide="${arrowIcon}" class="w-4 h-4 ${colorClass}"></i>
+                <i data-lucide="${direction==='sent'?'arrow-up-right':'arrow-down-left'}" class="w-4 h-4 ${color}"></i>
             `;
-            
             ui.historyList.prepend(item);
+            if(isImg && !blob) lucide.createIcons();
+        }
+
+        async function requestWakeLock() {
+            try { 
+                wakeLockSentinel = await navigator.wakeLock.request('screen');
+                ui.wakeLockStatus.innerHTML = '<i data-lucide="zap" class="w-3 h-3 text-yellow-400"></i> Pantalla Activa';
+                lucide.createIcons();
+            } catch(e) {}
+        }
+        function releaseWakeLock() {
+            if(wakeLockSentinel) { wakeLockSentinel.release(); wakeLockSentinel=null; }
+            ui.wakeLockStatus.innerHTML = '<i data-lucide="zap-off" class="w-3 h-3"></i> Ahorro Energía';
             lucide.createIcons();
         }
 
         function formatBytes(bytes) {
-            if (bytes === 0) return '0 Bytes';
+            if (bytes === 0) return '0 B';
             const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + ['Bytes', 'KB', 'MB', 'GB', 'TB'][i];
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
 
-        function formatSpeed(bps) { return formatBytes(bps) + '/s'; }
-        
-        function formatTime(s) {
-            if (!isFinite(s)) return "...";
-            const m = Math.floor(s / 60);
-            const sc = Math.floor(s % 60);
-            return `${m}m ${sc}s`;
-        }
+        function toggleQR() { document.getElementById('qr-container').classList.toggle('hidden'); }
+        function toggleLinkShare() { document.getElementById('link-area').classList.toggle('hidden'); }
+        function copyCode() { navigator.clipboard.writeText(ui.roomCodeDisplay.innerText); alert("Código copiado"); }
+        function copyLink() { navigator.clipboard.writeText(ui.shareLink.value); alert("Enlace copiado"); }
 
-        function copyLink() {
-            const link = ui.shareLink.value;
-            navigator.clipboard.writeText(link).then(() => {
-                const btn = ui.shareLink.nextElementSibling;
-                const original = btn.innerHTML;
-                btn.innerHTML = '<i data-lucide="check" class="w-5 h-5"></i>';
-                setTimeout(() => {
-                    btn.innerHTML = original;
-                    lucide.createIcons();
-                }, 1000);
-            });
-        }
-
-        // START
+        // Start
         init();
 
     </script>
