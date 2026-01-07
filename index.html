@@ -278,12 +278,19 @@
     <script>
         // --- CONFIG & STATE ---
         lucide.createIcons();
+        
+        // CONFIGURACIÓN MEJORADA (FIX PARA REDES LOCALES)
         const peerConfig = {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
-                ]
+                ],
+                iceTransportPolicy: 'all', // Forzar todas las rutas (LAN/WAN)
+                sdpSemantics: 'unified-plan'
             },
             debug: 1,
             pingInterval: 5000
@@ -295,6 +302,7 @@
         let isHost = false;
         let myNickname = localStorage.getItem('siurtec_nick') || 'Usuario_' + Math.floor(Math.random()*1000);
         let peerNickname = "Desconocido";
+        let connectTimeout = null; // Timer para detectar fallos de conexión
         
         let fileQueue = [];
         let isTransferring = false;
@@ -435,6 +443,16 @@
             isHost = false;
 
             updateStatus('connecting');
+            
+            // Timeout de Seguridad: Avisar si se queda pillado conectando
+            connectTimeout = setTimeout(() => {
+                if (ui.statusText.innerText === 'Conectando...') {
+                    updateStatus('error');
+                    alert("⚠️ No se ha podido conectar.\n\nSugerencias:\n1. Si usas Windows, revisa que el FIREWALL no bloquee al navegador.\n2. Asegúrate que ambos dispositivos tienen internet.\n3. Recarga ambas páginas e inténtalo de nuevo.");
+                    resetApp();
+                }
+            }, 15000); // 15s timeout
+
             peer = new Peer(null, peerConfig);
             
             peer.on('open', () => {
@@ -456,11 +474,19 @@
 
         function setupPeerEvents() {
             peer.on('open', (id) => updateStatus('waiting'));
+            
             peer.on('connection', (connection) => {
-                if(conn && conn.open) { connection.close(); return; } // One peer limit
+                // FIX CRÍTICO: Si ya hay una conexión, la cerramos para aceptar la nueva.
+                // Esto soluciona problemas cuando el móvil se desconecta y reconecta.
+                if(conn) { 
+                    console.log("Cerrando conexión antigua para aceptar nueva...");
+                    conn.close(); 
+                }
+                
                 conn = connection;
                 setupConnectionEvents();
             });
+
             peer.on('error', (err) => {
                 if(err.type === 'unavailable-id') { 
                     peer.destroy(); 
@@ -471,6 +497,7 @@
 
         function setupConnectionEvents() {
             conn.on('open', () => {
+                clearTimeout(connectTimeout); // Limpiar timeout si conecta
                 updateStatus('connected');
                 sounds.success.play().catch(()=>{});
                 
