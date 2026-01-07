@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiurtecShare | P2P Transfer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Iconos -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- StreamSaver.js & Polyfill -->
+    <script src="https://cdn.jsdelivr.net/npm/web-streams-polyfill@3/dist/polyfill.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.min.js"></script>
+    
+    <style>
+        /* Glassmorphism & Animaciones */
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-blur: 20px;
+            --accent: #6366f1;
+        }
+
+        body {
+            background: radial-gradient(circle at top left, #1e1b4b, #0f172a);
+            min-height: 100vh;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .drop-zone {
+            transition: all 0.3s ease;
+            background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='%236366F1FF' stroke-width='2' stroke-dasharray='12%2c 12' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+        }
+
+        .drop-zone.drag-active {
+            background-color: rgba(99, 102, 241, 0.1);
+            transform: scale(1.02);
+        }
+
+        /* Animación de pulso para estado de conexión */
+        .pulse-dot {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse-green 2s infinite;
+        }
+        
+        @keyframes pulse-green {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* Utility para ocultar scrollbar */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="flex items-center justify-center p-4">
+
+    <!-- Main Container -->
+    <div class="w-full max-w-2xl glass-panel rounded-3xl p-8 relative overflow-hidden">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-3">
+                <i data-lucide="zap" class="text-indigo-400 w-8 h-8"></i>
+                <h1 class="text-2xl font-bold tracking-tight text-white">SiurtecShare</h1>
+            </div>
+            <div id="connection-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500"></div>
+                <span id="status-text" class="text-xs font-medium text-gray-300">Inicializando...</span>
+            </div>
+        </header>
+
+        <!-- SENDER VIEW: Drop Zone -->
+        <div id="sender-view" class="hidden transition-all duration-500">
+            <div id="drop-area" class="drop-zone h-64 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5">
+                <input type="file" id="file-input" class="hidden">
+                <i data-lucide="upload-cloud" class="w-16 h-16 text-indigo-400 mb-4"></i>
+                <p class="text-lg font-medium text-white mb-2">Arrastra tu archivo aquí</p>
+                <p class="text-sm text-gray-400">o haz clic para explorar (+10GB soportado)</p>
+            </div>
+            
+            <!-- Link Sharing UI (Hidden until file selected) -->
+            <div id="link-area" class="mt-6 hidden fade-in">
+                <label class="text-sm text-gray-400 mb-2 block">Comparte este enlace para iniciar:</label>
+                <div class="flex gap-2">
+                    <input type="text" id="share-link" readonly class="flex-1 bg-black/30 border border-white/10 rounded-lg px-4 py-3 text-sm text-indigo-300 focus:outline-none focus:border-indigo-500 transition-colors">
+                    <button onclick="copyLink()" class="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-lg transition-colors">
+                        <i data-lucide="copy" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                    <i data-lucide="info" class="w-3 h-3"></i>
+                    Mantén esta pestaña abierta durante la transferencia.
+                </p>
+            </div>
+        </div>
+
+        <!-- RECEIVER VIEW: Download Prompt -->
+        <div id="receiver-view" class="hidden text-center py-10">
+            <div class="animate-pulse mb-6 flex justify-center">
+                <div class="w-20 h-20 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                    <i data-lucide="download" class="w-10 h-10 text-indigo-400"></i>
+                </div>
+            </div>
+            <h2 class="text-xl font-semibold text-white mb-2">Conectado con el emisor</h2>
+            <p class="text-gray-400 mb-8 max-w-md mx-auto">Esperando a que el emisor seleccione un archivo o inicie la transferencia...</p>
+        </div>
+
+        <!-- PROGRESS OVERLAY (Shared) -->
+        <div id="transfer-ui" class="hidden mt-6">
+            <div class="flex justify-between items-end mb-2">
+                <div>
+                    <h3 id="file-name" class="font-medium text-white truncate max-w-[200px]">archivo_gigante.zip</h3>
+                    <p id="transfer-speed" class="text-xs text-indigo-300 font-mono">0 MB/s</p>
+                </div>
+                <span id="percent-text" class="text-2xl font-bold text-white">0%</span>
+            </div>
+            <div class="w-full bg-gray-700/50 rounded-full h-4 overflow-hidden backdrop-blur-sm">
+                <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="eta-text" class="text-right text-xs text-gray-500 mt-2">Calculando tiempo restante...</p>
+            <p id="storage-mode" class="text-right text-[10px] text-gray-600 font-mono mt-1">Mode: Checking...</p>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-8 pt-6 border-t border-white/5 text-center">
+            <p class="text-xs text-gray-600 font-mono">P2P ENCRYPTED • SERVERLESS • UNLIMITED SIZE</p>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN E INICIALIZACIÓN ---
+        lucide.createIcons();
+        
+        // Configurar StreamSaver (opcional: forzar MITM si es necesario, dejamos default por ahora)
+        // streamSaver.mitm = 'https://jimmywarting.github.io/StreamSaver.js/mitm.html?version=2.0.0'
+        
+        // Configuración de PeerJS (Usando servidores públicos de Google para STUN)
+        const peerConfig = {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            },
+            debug: 2
+        };
+
+        let peer = null;
+        let conn = null;
+        let isHost = !window.location.hash; // Si no hay hash, soy el Host (Sender)
+        
+        // Elementos UI
+        const ui = {
+            statusDot: document.getElementById('status-dot'),
+            statusText: document.getElementById('status-text'),
+            senderView: document.getElementById('sender-view'),
+            receiverView: document.getElementById('receiver-view'),
+            dropArea: document.getElementById('drop-area'),
+            fileInput: document.getElementById('file-input'),
+            linkArea: document.getElementById('link-area'),
+            shareLink: document.getElementById('share-link'),
+            transferUI: document.getElementById('transfer-ui'),
+            progressBar: document.getElementById('progress-bar'),
+            percentText: document.getElementById('percent-text'),
+            speedText: document.getElementById('transfer-speed'),
+            fileName: document.getElementById('file-name'),
+            etaText: document.getElementById('eta-text'),
+            storageMode: document.getElementById('storage-mode')
+        };
+
+        // Constantes de Transferencia
+        const CHUNK_SIZE = 16 * 1024; // 16KB (Seguro para WebRTC MTU)
+        const BUFFER_THRESHOLD = 64 * 1024; // 64KB (Backpressure trigger)
+
+        // --- LÓGICA CORE ---
+
+        async function init() {
+            if (isHost) {
+                initHost();
+            } else {
+                initGuest();
+            }
+        }
+
+        function updateStatus(state) {
+            switch(state) {
+                case 'connected':
+                    ui.statusDot.className = "w-2 h-2 rounded-full bg-emerald-500 pulse-dot";
+                    ui.statusText.innerText = "Conexión segura P2P";
+                    ui.statusText.className = "text-xs font-medium text-emerald-300";
+                    break;
+                case 'disconnected':
+                    ui.statusDot.className = "w-2 h-2 rounded-full bg-red-500";
+                    ui.statusText.innerText = "Desconectado";
+                    break;
+                default:
+                    ui.statusDot.className = "w-2 h-2 rounded-full bg-yellow-500";
+                    ui.statusText.innerText = "Negociando...";
+            }
+        }
+
+        // --- LÓGICA DEL SENDER (HOST) ---
+        function initHost() {
+            ui.senderView.classList.remove('hidden');
+            peer = new Peer(null, peerConfig);
+
+            peer.on('open', (id) => {
+                const link = `${window.location.origin}${window.location.pathname}#${id}`;
+                ui.shareLink.value = link;
+                updateStatus('waiting');
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnectionEvents();
+            });
+
+            setupDragAndDrop();
+        }
+
+        // --- LÓGICA DEL RECEIVER (GUEST) ---
+        function initGuest() {
+            ui.receiverView.classList.remove('hidden');
+            const hostId = window.location.hash.substring(1);
+            
+            peer = new Peer(null, peerConfig);
+
+            peer.on('open', () => {
+                conn = peer.connect(hostId, { reliable: true });
+                setupConnectionEvents();
+            });
+        }
+
+        function setupConnectionEvents() {
+            conn.on('open', () => {
+                updateStatus('connected');
+                if (!isHost) {
+                    ui.receiverView.querySelector('h2').innerText = "Esperando archivo...";
+                }
+            });
+
+            conn.on('data', handleData);
+            
+            conn.on('close', () => {
+                updateStatus('disconnected');
+                alert("La conexión se ha perdido.");
+            });
+
+            conn.on('error', (err) => console.error("Error conexión:", err));
+        }
+
+        // --- GESTIÓN DE TRANSFERENCIA DE ARCHIVOS ---
+
+        let fileReader = null;
+        let incomingFileInfo = null;
+        let bytesReceived = 0;
+        let receiveBuffer = []; 
+        let fileStreamWriter = null; // Unificado para Native FS o StreamSaver
+        let startTime = 0;
+
+        // 1. Selección de Archivo (Sender)
+        function setupDragAndDrop() {
+            ui.dropArea.addEventListener('click', () => ui.fileInput.click());
+            
+            ui.dropArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                ui.dropArea.classList.add('drag-active');
+            });
+
+            ui.dropArea.addEventListener('dragleave', () => {
+                ui.dropArea.classList.remove('drag-active');
+            });
+
+            ui.dropArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                ui.dropArea.classList.remove('drag-active');
+                handleFileSelection(e.dataTransfer.files[0]);
+            });
+
+            ui.fileInput.addEventListener('change', (e) => {
+                handleFileSelection(e.target.files[0]);
+            });
+        }
+
+        function handleFileSelection(file) {
+            if (!file) return;
+            if (!conn || !conn.open) {
+                ui.linkArea.classList.remove('hidden');
+                ui.dropArea.querySelector('p').innerText = `Listo: ${file.name} (${formatBytes(file.size)})`;
+                
+                const waitForConn = setInterval(() => {
+                    if (conn && conn.open) {
+                        clearInterval(waitForConn);
+                        startTransfer(file);
+                    }
+                }, 1000);
+                return;
+            }
+            startTransfer(file);
+        }
+
+        // 2. Proceso de Envío (Productor con Backpressure)
+        async function startTransfer(file) {
+            ui.linkArea.classList.add('hidden');
+            ui.transferUI.classList.remove('hidden');
+            ui.fileName.innerText = file.name;
+            ui.storageMode.innerText = "Mode: Sending via WebRTC";
+            startTime = Date.now();
+
+            conn.send({
+                type: 'metadata',
+                name: file.name,
+                size: file.size,
+                mime: file.type
+            });
+
+            let offset = 0;
+            
+            const readSlice = () => {
+                if (offset >= file.size) {
+                    conn.send({ type: 'end' });
+                    return; 
+                }
+
+                if (conn.dataChannel.bufferedAmount > BUFFER_THRESHOLD) {
+                    const waitHandler = () => {
+                        conn.dataChannel.removeEventListener('bufferedamountlow', waitHandler);
+                        readSlice();
+                    };
+                    conn.dataChannel.onbufferedamountlow = waitHandler;
+                    return; 
+                }
+
+                const slice = file.slice(offset, offset + CHUNK_SIZE);
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    conn.send(e.target.result); 
+                    offset += e.target.result.byteLength;
+                    updateProgress(offset, file.size);
+                    setTimeout(readSlice, 0); 
+                };
+
+                reader.readAsArrayBuffer(slice);
+            };
+
+            readSlice();
+        }
+
+        // 3. Proceso de Recepción (Consumidor Optimizado)
+        async function handleData(data) {
+            // Caso 1: Metadatos (Inicio)
+            if (data.type === 'metadata') {
+                incomingFileInfo = data;
+                bytesReceived = 0;
+                receiveBuffer = [];
+                startTime = Date.now();
+                fileStreamWriter = null;
+                
+                ui.receiverView.classList.add('hidden');
+                ui.transferUI.classList.remove('hidden');
+                ui.fileName.innerText = data.name;
+
+                // ESTRATEGIA 1: File System Access API (Mejor UX, nativo)
+                if (window.showSaveFilePicker) {
+                    try {
+                        const handle = await window.showSaveFilePicker({ suggestedName: data.name });
+                        const writable = await handle.createWritable();
+                        fileStreamWriter = writable;
+                        ui.storageMode.innerText = "Mode: Direct Disk Write (Native)";
+                        console.log("Modo: Native File System");
+                        return;
+                    } catch (err) {
+                        console.warn("FS Nativo cancelado, probando StreamSaver...", err);
+                    }
+                }
+
+                // ESTRATEGIA 2: StreamSaver.js (Universal, directo a Descargas)
+                try {
+                    const fileStream = streamSaver.createWriteStream(data.name, { size: data.size });
+                    fileStreamWriter = fileStream.getWriter();
+                    ui.storageMode.innerText = "Mode: Direct Stream (StreamSaver.js)";
+                    console.log("Modo: StreamSaver.js");
+                    
+                    // Hack para evitar bloqueo de popup si el navegador lo requiere
+                    window.onbeforeunload = () => {
+                        if (fileStreamWriter) fileStreamWriter.abort();
+                    }
+                    return;
+                } catch (err) {
+                    console.error("StreamSaver falló, usando RAM fallback", err);
+                }
+
+                // ESTRATEGIA 3: RAM (Fallback final)
+                ui.storageMode.innerText = "Mode: RAM Buffer (Limitado)";
+                console.log("Modo: RAM Fallback");
+                return;
+            }
+
+            // Caso 2: Fin de transmisión
+            if (data.type === 'end') {
+                finalizeTransfer();
+                return;
+            }
+
+            // Caso 3: Chunk Binario
+            bytesReceived += data.byteLength;
+            updateProgress(bytesReceived, incomingFileInfo.size);
+
+            if (fileStreamWriter) {
+                // Escribir al stream (Funciona tanto para Native FS como StreamSaver)
+                // StreamSaver necesita Uint8Array, Native FS acepta Blob/Buffer/etc.
+                // Convertimos a Uint8Array para asegurar compatibilidad con ambos.
+                await fileStreamWriter.write(new Uint8Array(data));
+            } else {
+                receiveBuffer.push(data);
+            }
+        }
+
+        async function finalizeTransfer() {
+            ui.percentText.innerText = "100%";
+            ui.progressBar.style.width = "100%";
+            ui.speedText.innerText = "Completado";
+            window.onbeforeunload = null;
+
+            if (fileStreamWriter) {
+                // Cerrar stream (Cierra el archivo en disco o finaliza la descarga en StreamSaver)
+                await fileStreamWriter.close();
+                fileStreamWriter = null;
+                alert(`Descarga completada: ${incomingFileInfo.name}`);
+            } else {
+                // Reconstrucción desde RAM
+                const blob = new Blob(receiveBuffer, { type: incomingFileInfo.mime });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = incomingFileInfo.name;
+                a.click();
+                
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    receiveBuffer = [];
+                }, 1000);
+            }
+            
+            ui.statusText.innerText = "Transferencia finalizada";
+        }
+
+        // --- UTILITIES UI ---
+
+        function updateProgress(loaded, total) {
+            const percent = ((loaded / total) * 100).toFixed(1);
+            ui.progressBar.style.width = `${percent}%`;
+            ui.percentText.innerText = `${Math.floor(percent)}%`;
+
+            const now = Date.now();
+            const elapsed = (now - startTime) / 1000;
+            const speed = loaded / elapsed; 
+            
+            ui.speedText.innerText = formatSpeed(speed);
+            
+            if (speed > 0) {
+                const remaining = total - loaded;
+                const eta = remaining / speed;
+                ui.etaText.innerText = `ETA: ${formatTime(eta)}`;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatSpeed(bytesPerSec) {
+            return formatBytes(bytesPerSec) + '/s';
+        }
+
+        function formatTime(seconds) {
+            if (!isFinite(seconds)) return "...";
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m}m ${s}s`;
+        }
+
+        function copyLink() {
+            const link = ui.shareLink.value;
+            navigator.clipboard.writeText(link).then(() => {
+                const btn = ui.shareLink.nextElementSibling;
+                const originalIcon = btn.innerHTML;
+                btn.innerHTML = '<i data-lucide="check" class="w-5 h-5"></i>'; 
+                setTimeout(() => {
+                    btn.innerHTML = originalIcon;
+                    lucide.createIcons();
+                }, 2000);
+            });
+        }
+
+        // Arrancar
+        init();
+
+    </script>
+</body>
+</html>
