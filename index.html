@@ -266,10 +266,18 @@
 
                 <!-- TAB: FILES -->
                 <div id="tab-files" class="tab-content active flex-col h-full overflow-hidden">
+                    <!-- Drop Zone -->
                     <div id="drop-area" class="drop-zone shrink-0 h-32 md:h-40 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 relative mb-3 mx-1">
                         <input type="file" id="file-input" class="hidden" multiple>
                         <i data-lucide="upload-cloud" class="w-6 h-6 md:w-8 md:h-8 text-indigo-400 mb-2"></i>
                         <p class="text-xs md:text-sm font-medium text-white text-center">Toca para subir<br><span class="text-gray-500 text-[10px]">(o arrastra)</span></p>
+                    </div>
+
+                    <!-- NEW BUTTON ADDED HERE -->
+                    <div class="flex justify-center mb-3">
+                        <button onclick="document.getElementById('file-input').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-6 rounded-xl shadow-lg shadow-indigo-500/30 transition-all flex items-center gap-2 font-medium w-full sm:w-auto justify-center">
+                            <i data-lucide="file-plus" class="w-5 h-5"></i> Seleccionar y Enviar
+                        </button>
                     </div>
 
                     <div id="transfer-ui" class="hidden bg-indigo-900/20 p-3 rounded-2xl border border-indigo-500/20 mb-3 shrink-0">
